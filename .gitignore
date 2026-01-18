@@ -1,0 +1,5 @@
+music/
+.mdo/
+extra/
+__pycache__
+*.pyc
