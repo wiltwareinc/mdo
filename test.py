@@ -1,24 +1,30 @@
-import json
-import logging
-import re
 from pathlib import Path
-from typing import Any, Dict, Optional
+
+from models.file_manager import FileManager
 
 
-def read_metadata(file: Path) -> Optional[Dict[str, Any]]:
-    if not file.exists():
-        logging.error(f"File {file} does not exist. Not reading metadata.")
-        return None
-    # maybe temp
-    json_name = re.compile(rf".*\.json")
-    if not json_name.match(file.name):
-        logging.error(f"File {file} is not a JSON. Not reading metadata.")
-        return None
-    with open(file, "r") as item:
-        data = json.load(item)
-    return data
+def main() -> None:
+    fm = FileManager(Path("music"))
+
+    print(f"Songs: {len(fm.songs)}")
+    print("First song:", fm.songs[0] if fm.songs else "none")
+
+    albums = fm.read_albums()
+    print(f"Albums: {len(albums)}")
+    print("First album:", albums[0] if albums else "none")
+
+    required_song = {"slug", "title", "lyrics_count", "projects_count", "renders_count"}
+    for song in fm.songs:
+        missing = required_song - song.keys()
+        if missing:
+            print("Missing song keys:", song.get("slug"), missing)
+
+    required_album = {"slug", "name", "tracklist", "created_at", "modified_at"}
+    for album in albums:
+        missing = required_album - album.keys()
+        if missing:
+            print("Missing album keys:", album.get("slug"), missing)
 
 
-test: Path = Path("music/songs/20251128-alpine/.metadata.json")
-result = read_metadata(test)
-print(result.get("created_at") if result is not None else "")
+if __name__ == "__main__":
+    main()
