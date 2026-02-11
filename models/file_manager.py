@@ -331,21 +331,72 @@ class FileManager:
 
         candidate = projectf
         counter = 1
-        
+
         if candidate.exists():
             while (projectd / f"{slug}-{counter}").exists():
                 counter += 1
-            candidate = (projectd / f"{slug}-{counter}")
+            candidate = projectd / f"{slug}-{counter}"
         candidate.mkdir()
 
         # for now we are just grabbing the reaper default, will be extensible in the future
-        reaper_default = (
-            Path("~/.config/REAPER/ProjectTemplates/default.RPP").expanduser()
-        )
+        reaper_default = Path(
+            "~/.config/REAPER/ProjectTemplates/default.RPP"
+        ).expanduser()
         dest = candidate / f"{title}.RPP"
         shutil.copy2(reaper_default, dest)
 
         return dest
+
+    # EDITING/RENAMING
+    def edit_album(self, slug: Path, name: Optional[str], tracklist: Optional[list[str]]) -> Optional[Path]:
+        """
+        Edits an album.
+
+        Args:
+            slug: Root of the curent album
+            name: What the desired name (if any) the album should become
+            tracklist: New desired tracklist (if any)
+        Returns:
+            New path of the album.
+        """
+        if not slug.exists():
+            logging.error(f"{slug} does not exist.")
+            return None
+
+        if name is not None:
+            slug_split = str(slug.name).split("-")
+            newslug = slug.parent / f"{slug_split[0]}-{name}"
+            if newslug.exists():
+                logging.error(f"{newslug} already exists, not overwriting.")
+                return None
+            slug.rename(newslug)
+            slug = newslug
+        
+        songs = slug / "songs"
+        
+        valid = []
+        if tracklist is not None:
+            for item in tracklist:
+                if item not in self.songs_set:
+                    logging.warning(f"{item} is not in list of songs. Skipping")
+                    continue
+                valid.append(item)
+                    
+        for p in songs.iterdir():
+            if p.is_symlink() and p.name not in valid:
+                p.unlink()
+            
+        for item in valid:
+            dest = songs/item
+            if not dest.exists():
+                dest.symlink_to(self.droot / "songs" / item)
+                
+        metadata = self.create_metadata("album", slug)
+        if metadata is not None:
+            with open(slug / ".metadata.json", "w") as f:
+                json.dump(metadata, f, indent=2)
+        else:
+            logging.warning(f"Metadata for {slug} not created.")
 
 
 # testing
