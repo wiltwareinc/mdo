@@ -114,7 +114,7 @@ class FileManager:
             return datetime(y, m, d, 0, 0, 0, tzinfo=tz).isoformat()
         return
 
-    def create_metadata(self, kind: str, slug: Path):
+    def create_metadata(self, kind: str, slug: Path, tracklist: Optional[list[str]] = None):
         metadata = {}
         # All metadata should have a slug and title
         metadata["slug"] = f"{slug.name}"
@@ -155,15 +155,27 @@ class FileManager:
                 logging.error("Error")
 
         elif kind == "album":
-            # detect if there are any symlinks
-            songs = slug / "songs"
-            tracklist = []
-            track_number = 0
-            for sub in sorted(songs.iterdir()):
-                if sub.is_symlink():
+            if tracklist:
+                tracklist_out = []
+                track_number = 0
+                for item in tracklist:
+                    if item not in self.songs_set:
+                        logging.warning(f"{item} is not in song list. Skipping")
+                        continue
                     track_number += 1
-                    tracklist.append({"slug": sub.name, "number": track_number})
-            metadata["tracklist"] = tracklist
+                    tracklist_out.append({"slug": item, "number": track_number})
+                metadata["tracklist"] = tracklist_out
+                
+            else:
+            # detect if there are any symlinks
+                songs = slug / "songs"
+                tracklist_out = []
+                track_number = 0
+                for sub in sorted(songs.iterdir()):
+                    if sub.is_symlink():
+                        track_number += 1
+                        tracklist_out.append({"slug": sub.name, "number": track_number})
+                metadata["tracklist"] = tracklist_out
         else:
             logging.error(f"Calling a metadata creation can't process {kind}.")
             return
@@ -215,7 +227,7 @@ class FileManager:
                 continue
             (songs / item).symlink_to(self.droot / "songs" / item)
 
-        metadata = self.create_metadata("album", proot)
+        metadata = self.create_metadata("album", proot, tracklist)
         if metadata is not None:
             with open(proot / ".metadata.json", "w") as f:
                 json.dump(metadata, f, indent=2)
@@ -227,14 +239,14 @@ class FileManager:
     def create_song(self, title, args: list[str]) -> Optional[Path]:
         """
         Creates a song and the appropriate folders.
-        
+
         Args:
             title: the name of the song
             args: A list of arguments. "lyric" means create a lyric, "session" means create a session.
-            
+
         Returns:
             The slug of the song's root folder as a Path, or None if it fails.
-        """ 
+        """
         date = datetime.now().strftime("%Y%m%d")  # YYYYMMDD
         slug = f"{date}-{title}"
 
@@ -244,7 +256,7 @@ class FileManager:
             if sd.name == slug:
                 logging.error(f"{sd} is a duplicate. Not making")
                 return None
-                
+
         sroot = songs_path / slug
         lyrics = sroot / "lyrics"
         renders = sroot / "renders"
@@ -253,26 +265,26 @@ class FileManager:
         lyrics.mkdir()
         renders.mkdir()
         projects.mkdir()
-        
+
         # check args
         if "lyrics" in args:
             self.create_lyrics(sroot, title)
         if "project" in args:
             self.create_project(sroot, title)
-        
+
         # build metadata
         self.create_metadata("song", sroot)
         return sroot
-        
+
     def create_lyrics(self, root: Path, title) -> Optional[Path]:
         """
         Creates a lyric.
-        
+
         Args:
             root: Root of song to create a lyric in
         Returns:
             Path of the lyrics file
-        
+
         Note: this can fail if the lyrics/ dir does not exist in the directory.
         """
         # verify that the lyrics dir exists
@@ -280,38 +292,38 @@ class FileManager:
         if not lyricsd.exists():
             logging.error(f"{root} does not have a lyrics folder")
             return None
-        
+
         date = datetime.now().strftime("%Y%m%d")  # YYYYMMDD
         slug = f"{date}-{title}"
         # we can be more lenient, let's do a check
         lyricsf = lyricsd / slug
         candidate = lyricsf.with_suffix(".txt")
         counter = 1
-        
+
         if candidate.exists():
             while (lyricsd / f"{slug}-{counter}.txt").exists():
                 counter += 1
-            candidate = (lyricsd / f"{slug}-{counter}.txt")
+            candidate = lyricsd / f"{slug}-{counter}.txt"
         candidate.touch()
-            
+
         return candidate
-        
+
     def create_project(self, root: Path, title) -> Optional[Path]:
         """
         Creates a project.
-        
+
         Args:
             root: Root of song to create a project in
         Returns:
             Path of the project specific file (ex. a .RPP file for Reaper)
-        
+
         Note: this can fail if the projects/ dir does not exist in the directory.
         """
         projectd: Path = root / "projects"
         if not projectd.exists():
             logging.error(f"{root} does not have a projects folder")
             return None
-        
+
         date = datetime.now().strftime("%Y%m%d")  # YYYYMMDD
         slug = f"{date}-{title}"
         # we can be more lenient
