@@ -467,10 +467,15 @@ class FileManager:
                     #name *should* just be {title.RPP} (once again, temporary REAPER permanent)
                     found = False
                     for subitem in item.iterdir(): #is there a more efficient way of doing this?
-                        if subitem.name == f"{original_name}.RPP":
-                            found = True
-                            new_item_slug = item / f"{name}.RPP"
-                            subitem.rename(new_item_slug)
+                        stem = subitem.stem
+                        parts = stem.split("-",1)
+                        if len(parts[0]) == 8 and parts[0].isdigit(): # starts with YYYYMMDD, beautiful
+                            new_name = f"{parts[0]}-{name}{subitem.suffix}"
+                        else:
+                            new_name = f"{name}{subitem.suffix}"
+                        subitem.rename(item / new_name)
+                        found = True
+                        break
                     if found == False:
                         logging.warning(f"Unable to rename for {item}, unable to find REAPER file.")
         if default_project is not None:
