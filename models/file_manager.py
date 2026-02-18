@@ -20,12 +20,14 @@ class FileManager:
             sys.exit(1)
         self.droot = droot
         # array of albums (slug, title, tracklist (in slugs), created, modified)
-        self.albums = self.read_albums()
+        self.albums = []
+        self.albums_set = []
         # array of songs (in terms of (slug, name, # of lyrics, # of projects, # of renders, creation date, modified date)
-        self.songs = self.read_songs()
-        self.albums.sort(key=lambda x: x["slug"])
-        self.songs.sort(key=lambda x: x["slug"])
-        self.songs_set = [s["slug"] for s in self.songs]
+        self.songs = []
+        self.songs_set = []
+        
+        self.refresh_songs()
+        self.refresh_albums()
 
     # READING
 
@@ -67,6 +69,7 @@ class FileManager:
             except json.JSONDecodeError as e:
                 logging.warning(f"Bad metadata for {sd}: {e}")
                 # will need to be fixed in the future, for now just skip
+                continue
 
             songs.append(metadata)
 
@@ -104,6 +107,16 @@ class FileManager:
 
         return albums
 
+    def refresh_songs(self) -> None:
+        self.songs = self.read_songs()
+        self.songs.sort(key=lambda x: x["slug"])
+        self.songs_set = [s["slug"] for s in self.songs]
+    
+    def refresh_albums(self) -> None:
+        self.albums = self.read_albums()
+        self.albums.sort(key=lambda x: x["slug"])
+        self.albums_set = [s["slug"] for s in self.albums]
+
     ### CREATION
     # both are temp, will be added to a utilities folder soon
     def iso_to_timestamp(self, iso, tz: ZoneInfo):
@@ -114,7 +127,7 @@ class FileManager:
             return datetime(y, m, d, 0, 0, 0, tzinfo=tz).isoformat()
         return
 
-    def create_metadata(self, kind: str, slug: Path, tracklist: Optional[list[str]] = None):
+    def create_metadata(self, kind: str, slug: Path, tracklist: Optional[list[str]] = None, default_project: Optional[Path] = None):
         metadata = {}
         # All metadata should have a slug and title
         metadata["slug"] = f"{slug.name}"
@@ -140,10 +153,13 @@ class FileManager:
                     for p in sorted(projects.iterdir())
                     if p.is_dir()
                 ]
-                # just grab the newest project as the default
-                metadata["default_project"] = (
-                    metadata["projects"][-1]["path"] if metadata["projects"] else None
-                )
+                if default_project:
+                    metadata["default_project"] = str(default_project.relative_to(slug))
+                else:
+                    # just grab the newest project as the default
+                    metadata["default_project"] = (
+                        metadata["projects"][-1]["path"] if metadata["projects"] else None
+                    )
                 renders = slug / "renders"
                 metadata["renders"] = [
                     {"path": str(p.relative_to(slug))}
@@ -234,6 +250,7 @@ class FileManager:
         else:
             logging.warning(f"Metadata for {proot} not created.")
 
+        self.refresh_albums()
         return proot
 
     def create_song(self, title, args: list[str]) -> Optional[Path]:
@@ -273,7 +290,14 @@ class FileManager:
             self.create_project(sroot, title)
 
         # build metadata
-        self.create_metadata("song", sroot)
+        metadata = self.create_metadata("song", sroot)
+        if metadata is not None:
+            with open(sroot / ".metadata.json", "w") as f:
+                json.dump(metadata, f, indent=2)
+        else:
+            logging.warning(f"Metadata for {sroot} not created.")
+        
+        self.refresh_songs()
         return sroot
 
     def create_lyrics(self, root: Path, title) -> Optional[Path]:
@@ -389,7 +413,7 @@ class FileManager:
         for item in valid:
             dest = songs/item
             if not dest.exists():
-                dest.symlink_to(self.droot / "songs" / item)
+                dest.symlink_to(self.droot / "songs"/ item)
                 
         metadata = self.create_metadata("album", slug)
         if metadata is not None:
@@ -397,7 +421,84 @@ class FileManager:
                 json.dump(metadata, f, indent=2)
         else:
             logging.warning(f"Metadata for {slug} not created.")
+        
+        self.refresh_albums()
+        return slug
 
+    def edit_song(self, slug: Path, name: Optional[str], default_project: Optional[int]) -> Optional[Path]:
+        """
+        Edits a project.
+        
+        Args:
+            slug: Root of the current song
+            name: New song name (if any). Will also propogate to lyrics and projects, but not renders.
+            default_project: Change the default project if desired. Takes an integer and sets it to that listed project. Note: Should this be an integer or slug?
+        Returns:
+            New path of album on success, None if fail.
+        """
+        if not slug.exists():
+            logging.error(f"{slug} does not exist.")
+            return None
+            
+        default = None
+        if name:
+            slug_split = str(slug.name).split("-")
+            original_name = "-".join(slug_split[1:]) # grab everything after the date
+            newslug = slug.parent / f"{slug_split[0]}-{name}"
+            if newslug.exists():
+                logging.warning(f"{newslug} already exists, not overwriting.")
+                return None
+            slug.rename(newslug)
+            slug = newslug
+            # do da lyrics
+            lyrics = newslug / "lyrics"
+            for item in lyrics.iterdir():
+                if not item.is_dir():
+                    itemsplit = str(item.name).split("-")
+                    newitem = item.parent / f"{itemsplit[0]}-{name}.txt" #note: sometimes it's not txt and this will overwrite 
+                    # this doesn't cover cases that aren't exactly YYYYMMMDD-name (what if no YYYYMMMDD? what about YYYYMMDD-name-something?)
+                    item.rename(newitem)
+            # do da projects
+            # projects *should* be labeled YYYYMMDD-project%d
+            # if not, how fix?
+            projects = newslug / "projects"
+            for item in projects.iterdir():
+                if item.is_dir():
+                    #name *should* just be {title.RPP} (once again, temporary REAPER permanent)
+                    found = False
+                    for subitem in item.iterdir(): #is there a more efficient way of doing this?
+                        if subitem.name == f"{original_name}.RPP":
+                            found = True
+                            new_item_slug = item / f"{name}.RPP"
+                            subitem.rename(new_item_slug)
+                    if found == False:
+                        logging.warning(f"Unable to rename for {item}, unable to find REAPER file.")
+        if default_project is not None:
+            projects = slug / "projects"
+            listedproj = sum(1 for _ in projects.iterdir())
+            if default_project > listedproj:
+               logging.error(f"{default_project} too high for total project count: {listedproj}") 
+               return None
+            elif default_project < 1:
+                logging.error(f"{default_project} must not be less than 1.")
+                return None
+            # now find it, it should be sorted
+            n = 1
+            for p in sorted(projects.iterdir()):
+                if n == default_project:
+                    default = p
+                    break
+                n += 1
+                
+        metadata = self.create_metadata("song", slug, default_project=default)
+        if metadata is not None:
+            with open(slug / ".metadata.json", "w") as f:
+                json.dump(metadata, f, indent=2)
+        else:
+            logging.warning(f"Metadata for {slug} not created.")
+            
+        self.refresh_songs()
+        return slug
 
 # testing
 if __name__ == "__main__":
