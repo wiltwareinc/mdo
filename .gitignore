@@ -4,3 +4,4 @@ extra/
 __pycache__
 *.pyc
 .zed
+test/
