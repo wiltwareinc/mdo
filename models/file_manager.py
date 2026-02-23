@@ -124,7 +124,10 @@ class FileManager:
             y = int(iso[0:4])
             m = int(iso[4:6])
             d = int(iso[6:8])
-            return datetime(y, m, d, 0, 0, 0, tzinfo=tz).isoformat()
+            try:
+                return datetime(y, m, d, 0, 0, 0, tzinfo=tz).isoformat()
+            except ValueError: # ex. 00000000
+                return None
         return
 
     def create_metadata(self, kind: str, slug: Path, tracklist: Optional[list[str]] = None, default_project: Optional[Path] = None):
