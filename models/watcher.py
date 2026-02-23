@@ -34,8 +34,16 @@ class MdoEventHandler(FileSystemEventHandler): # pushes changes into debounce
         
     def on_any_event(self, event: FileSystemEvent) -> None:
         # return super().on_any_event(event)
+        # skip anything that's not created or moved
+        if event.event_type not in ("created", "moved"):
+            # this may be too strict, we might want modified
+            return
         raw = event.src_path
         src_path = raw.decode() if isinstance(raw, bytes) else raw # type checker for string
+        print(f"\tsrc_path: {src_path}\n\tevent_type: {event.event_type}")
+        if str(src_path).endswith(".metadata.json"):
+            # TEMP: skip over metadata rewrites so it doesn't get caught in a loop
+            return
         kind_path = normalize_event_path(self.root, Path(src_path))
         if kind_path is None:
             return

@@ -45,6 +45,7 @@ def main() -> None:
         """
         just passes fm to on_change
         """
+        print(f"watcher: {kind} changed -> {path}")
         on_change(fm, kind, path)
         
     from models.watcher import run_watcher
