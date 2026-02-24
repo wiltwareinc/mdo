@@ -1,0 +1,9 @@
+
+SongBox {
+    border: solid $secondary;
+    padding: 1 2;
+    margin: 1;
+    /*height: 9;*/
+    /*width: 40;*/
+    width: 100%
+}
