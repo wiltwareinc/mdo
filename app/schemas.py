@@ -18,10 +18,10 @@ class SongOut(BaseModel):
     slug: str
     title: str
     timezone: str
-    lyrics: List[FileRef]
-    projects: List[FileRef]
-    default_project: Optional[str]
-    renders: List[FileRef]
+    lyrics: List[FileRef] = []
+    projects: List[FileRef] = []
+    default_project: Optional[str] = None
+    renders: List[FileRef] = []
     created_at: str
     modified_at: str
     
@@ -29,7 +29,7 @@ class AlbumOut(BaseModel):
     slug: str
     title: str
     timezone: str
-    tracklist: List[TrackRef]
+    tracklist: List[TrackRef] = []
     created_at: str
     modified_at: str
     
