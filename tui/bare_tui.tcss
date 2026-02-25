@@ -1,9 +1,21 @@
 
 SongBox {
     border: solid $secondary;
-    padding: 1 2;
+    padding: 0 0;
     margin: 1;
-    /*height: 9;*/
-    /*width: 40;*/
-    width: 100%
+    width: 100%;
+}
+
+Vertical,
+Horizontal {
+    height: auto;
+}
+
+.song-btns {
+    height: auto;
+    align-horizontal: right;
+}
+.song-btns Button {
+    border: none;
+    align-horizontal: right;
 }
