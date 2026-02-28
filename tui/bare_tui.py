@@ -9,7 +9,7 @@ from textual.app import App, ComposeResult, SystemCommand
 from textual.binding import Binding
 from textual.command import Command, Provider
 from textual.containers import VerticalScroll, Horizontal, Vertical
-from textual.screen import Screen
+from textual.screen import ModalScreen, Screen
 from textual.widgets import Footer, Header, Static, Button, Label, Input
 from textual.widget import Widget
 
@@ -47,45 +47,96 @@ class SongBox(Static):
             yield Label(f"Lyrics: {len(lyrics)}, Projects: {len(projects)}, Renders: {len(renders)}")
     
     def on_button_pressed(self, event: Button.Pressed) -> None:
-        sroot = Path(self.song["slug"])
+        MUSIC_ROOT = Path(os.getenv("MDO_ROOT", "./music")).resolve()
+        sroot: Path = MUSIC_ROOT / "songs" / self.song["slug"]
+
         if event.button.id == "open_project":
-            project = self.song["default_project"]
+            default = self.song["default_project"]
+            project = sroot / default if default is not None else sroot
+            project = _find_reaper(project)
             if project:
-                self.notify(f"open {sroot / project}")
+                self.notify(f"open {project}")
+                _open_file(project)
             else:
                 self.notify("No default project!")
+
         if event.button.id == "open_renders":
             self.notify(f"open renders folder {sroot / "renders"}")
+            _open_file(sroot / "renders")
+
         if event.button.id == "open_lyrics":
-            lyric = self.song['lyrics'][-1]
+            lyric = self.song['lyrics'][-1]['path']
             if lyric:
                 self.notify(f"open lyrics {sroot / lyric}")
-        if event.button.id == "item":
-            self.notify("item")
+                # self.notify(lyric)
+                _open_file(sroot / lyric)
+            else:
+                self.notify("No lyrics found!")
+
+        if event.button.id == "edit":
+            self.notify("edit")
     # def render(self) -> str:
     #     return f"title: {self.song['title']}\nslug: {self.song['slug']}"
+def _open_file(file: Path) -> None:
+    # only linux rn
+    with open("tui.log", "a") as log:
+        subprocess.call(
+            ('xdg-open', file),
+            stdout=log,
+            stderr=log,
+            text=True
+        )
+     
+def _find_reaper(project: Path) -> Path:
+    """Quick helper to find a .RPP file"""
+    for item in project.iterdir():
+        if item.suffix == ".RPP":
+            return item
+    
+    return project
+
+class SearchScreen(ModalScreen):
+    def compose(self):
+        self.previous_focus = self.app.screen.focused
+        yield Input(placeholder="Search by title...", id="search")
+    
+    def on_mount(self):
+        self.notify(f"previous focus {self.previous_focus}")
+        self.query_one(Input).focus()
+    
+    async def on_input_changed(self, event: Input.Changed) -> None:
+        query = event.value.strip().lower()
+        self.app.filter_boxes(query)
+        # await self.app.pop_screen()
+    
+    async def on_input_submitted(self, _) -> None:
+        self.dismiss()
+        
 
 class MdoApp(App):
     """entrypoint"""
+    COMMAND_PALETTE_BINDING = "colon"
     CSS_PATH = "bare_tui.tcss"
     BINDINGS = [
               Binding("n", "sort_name", "Sort by name", show=True),
               Binding("c", "sort_created", "Sort by created", show=True),
               Binding("m", "sort_modified", "Sort by modified", show=True),
+              Binding("/", "search", "Search", show=True),
+              Binding("Q", "quit", "Quit"),
           ]
-
+    
     def compose(self) -> ComposeResult:
         """Create child widgets for the app."""
         yield Header()
-        yield Input(placeholder="Search by title...", id="search")
+        # yield Input(placeholder="Search by title...", id="search")
         yield VerticalScroll(id="song_list")
         yield Footer()
         
-    async def on_input_changed(self, event: Input.Changed) -> None:
-        if event.input.id != "search":
-            return
-        query = event.value.strip().lower()
-        self.filter_boxes(query=query)
+    # async def on_input_changed(self, event: Input.Changed) -> None:
+    #     if event.input.id != "search":
+    #         return
+    #     query = event.value.strip().lower()
+    #     self.filter_boxes(query=query)
     
     async def on_mount(self) -> None:
         self.songs = get_songs()
@@ -93,6 +144,9 @@ class MdoApp(App):
         song_list = self.query_one("#song_list", VerticalScroll)
         for box in self.boxes:
             await song_list.mount(box)
+            
+    def on_resume(self) -> None:
+        self.set_focus(self.app.query_one("#song_list"))
         
     def filter_boxes(self, query:str) -> None:
         q = query.lower().strip()
@@ -139,6 +193,17 @@ class MdoApp(App):
     
     async def action_sort_modified(self) -> None:
         await self.sort_boxes(key="modified_at")
+    
+    async def action_search(self) -> None:
+        self.notify("search!")
+        await self.push_screen(SearchScreen(), callback=self.on_search_closed)
+    
+    async def action_quit(self) -> None:
+        self.exit()
+    
+    def on_search_closed(self, _result):
+        song_list = self.query_one('#song_list')
+        song_list.focus()
 
 
 # API INFORMATION
