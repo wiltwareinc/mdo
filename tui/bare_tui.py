@@ -1,209 +1,90 @@
 # wiltware
 # barebones TUI to use this without a frontend using Textual
 import os
-from pathlib import Path
 import socket
 import subprocess
 import time
-from textual.app import App, ComposeResult, SystemCommand
+from textual.app import App
 from textual.binding import Binding
-from textual.command import Command, Provider
-from textual.containers import VerticalScroll, Horizontal, Vertical
 from textual.screen import ModalScreen, Screen
-from textual.widgets import Footer, Header, Static, Button, Label, Input
-from textual.widget import Widget
+from textual.widgets import Input
 
-from tui.api_client import get_songs, get_song
+from tui.album_screen import AlbumScreen
+from tui.song_screen import SongScreen
 
-class SongBox(Static):
-    """
-    Information for a song based on information
-    """
-    def __init__(self, song: dict, **kwargs) -> None:
-        super().__init__(**kwargs)
-        self.song = song
-    
-    def compose(self):
-        # yield Label(f"{self.song['title']}")
-        # yield Horizontal(
-        #     Button("Open", id="open"),
-        #     Button("Edit", id="edit"),
-        # )
-        lyrics = self.song["lyrics"]
-        projects = self.song["projects"]
-        renders = self.song["renders"]
-        with Vertical(classes="box-base"):
-            with Horizontal(classes="song-row"):
-                with Vertical(classes="song-meta"):
-                    yield Label(self.song["title"])
-                    yield Label(f"Created:  {self.song["created_at"][:10]}")
-                    yield Label(f"Modified: {self.song["modified_at"][:10]}")
-                with Vertical(classes="song-btns"):
-                    yield Button("Open Default", id="open_project", flat=True)
-                    yield Button("Open Renders", id="open_renders", flat=True)
-                    yield Button("Open Lyrics", id="open_lyrics", flat=True)
-                    # yield Button("Open", id="open", flat=True)
-                    yield Button("Edit", id="edit", flat=True)
-            yield Label(f"Lyrics: {len(lyrics)}, Projects: {len(projects)}, Renders: {len(renders)}")
-    
-    def on_button_pressed(self, event: Button.Pressed) -> None:
-        MUSIC_ROOT = Path(os.getenv("MDO_ROOT", "./music")).resolve()
-        sroot: Path = MUSIC_ROOT / "songs" / self.song["slug"]
-
-        if event.button.id == "open_project":
-            default = self.song["default_project"]
-            project = sroot / default if default is not None else sroot
-            project = _find_reaper(project)
-            if project:
-                self.notify(f"open {project}")
-                _open_file(project)
-            else:
-                self.notify("No default project!")
-
-        if event.button.id == "open_renders":
-            self.notify(f"open renders folder {sroot / "renders"}")
-            _open_file(sroot / "renders")
-
-        if event.button.id == "open_lyrics":
-            lyric = self.song['lyrics'][-1]['path']
-            if lyric:
-                self.notify(f"open lyrics {sroot / lyric}")
-                # self.notify(lyric)
-                _open_file(sroot / lyric)
-            else:
-                self.notify("No lyrics found!")
-
-        if event.button.id == "edit":
-            self.notify("edit")
-    # def render(self) -> str:
-    #     return f"title: {self.song['title']}\nslug: {self.song['slug']}"
-def _open_file(file: Path) -> None:
-    # only linux rn
-    with open("tui.log", "a") as log:
-        subprocess.call(
-            ('xdg-open', file),
-            stdout=log,
-            stderr=log,
-            text=True
-        )
-     
-def _find_reaper(project: Path) -> Path:
-    """Quick helper to find a .RPP file"""
-    for item in project.iterdir():
-        if item.suffix == ".RPP":
-            return item
-    
-    return project
 
 class SearchScreen(ModalScreen):
     def compose(self):
         self.previous_focus = self.app.screen.focused
         yield Input(placeholder="Search by title...", id="search")
-    
+
     def on_mount(self):
-        self.notify(f"previous focus {self.previous_focus}")
         self.query_one(Input).focus()
-    
+
     async def on_input_changed(self, event: Input.Changed) -> None:
         query = event.value.strip().lower()
-        self.app.filter_boxes(query)
-        # await self.app.pop_screen()
-    
+        self.app.filter_active_boxes(query)
+
     async def on_input_submitted(self, _) -> None:
         self.dismiss()
-        
+
 
 class MdoApp(App):
-    """entrypoint"""
+    """Entry point."""
+
     COMMAND_PALETTE_BINDING = "colon"
     CSS_PATH = "bare_tui.tcss"
     BINDINGS = [
-              Binding("n", "sort_name", "Sort by name", show=True),
-              Binding("c", "sort_created", "Sort by created", show=True),
-              Binding("m", "sort_modified", "Sort by modified", show=True),
-              Binding("/", "search", "Search", show=True),
-              Binding("Q", "quit", "Quit"),
-          ]
-    
-    def compose(self) -> ComposeResult:
-        """Create child widgets for the app."""
-        yield Header()
-        # yield Input(placeholder="Search by title...", id="search")
-        yield VerticalScroll(id="song_list")
-        yield Footer()
-        
-    # async def on_input_changed(self, event: Input.Changed) -> None:
-    #     if event.input.id != "search":
-    #         return
-    #     query = event.value.strip().lower()
-    #     self.filter_boxes(query=query)
-    
+        Binding("n", "sort_name", "Sort by name", show=True),
+        Binding("c", "sort_created", "Sort by created", show=True),
+        Binding("m", "sort_modified", "Sort by modified", show=True),
+        Binding("/", "search", "Search", show=True),
+        Binding("s", "show_songs", "Songs", show=True),
+        Binding("a", "show_albums", "Albums", show=True),
+        Binding("Q", "quit", "Quit"),
+    ]
+
     async def on_mount(self) -> None:
-        self.songs = get_songs()
-        self.boxes = [SongBox(song) for song in self.songs]
-        song_list = self.query_one("#song_list", VerticalScroll)
-        for box in self.boxes:
-            await song_list.mount(box)
-            
-    def on_resume(self) -> None:
-        self.set_focus(self.app.query_one("#song_list"))
-        
-    def filter_boxes(self, query:str) -> None:
-        q = query.lower().strip()
-        for box in self.boxes:
-            title = box.song.get("title", "").lower()
-            box.display = q in title if q else True #???
-            
-    async def sort_boxes(self, key: str) -> None:
-        song_list = self.query_one("#song_list", VerticalScroll)
-        boxes = sorted(self.boxes, key=lambda b: b.song.get(key, "").lower())
-        with self.batch_update():
-            last = None
-            for box in boxes:
-                if last is None:
-                    song_list.move_child(box, before=0, after=None)
-                else:
-                    song_list.move_child(box, after=last)
-                last = box
-        song_list.scroll_home(animate=False)
-        
-    def get_system_commands(self, screen: Screen):
-        yield from super().get_system_commands(screen)
-        yield SystemCommand(
-            "Sort by Name",
-            "sort songs alphabetically",
-            self.action_sort_name,  # this is your action
-        )
-        yield SystemCommand(
-            "Sort by created",
-            "sort songs by creation date",
-            self.action_sort_created,  # this is your action
-        )
-        yield SystemCommand(
-            "Sort by Modified",
-            "Sort songs by modified date",
-            self.action_sort_modified,  # this is your action
-        )
-    
+        await self.push_screen(SongScreen())
+
+    def _active_list_screen(self) -> Screen | None:
+        stack = getattr(self, "screen_stack", [])
+        for screen in reversed(stack):
+            if hasattr(screen, "filter_boxes") and hasattr(screen, "sort_boxes"):
+                return screen
+        return None
+
+    def filter_active_boxes(self, query: str) -> None:
+        screen = self._active_list_screen()
+        if screen is not None:
+            screen.filter_boxes(query)
+
     async def action_sort_name(self) -> None:
-        await self.sort_boxes(key="title")
-    
+        screen = self._active_list_screen()
+        if screen is not None:
+            await screen.sort_boxes(key="title")
+
     async def action_sort_created(self) -> None:
-        await self.sort_boxes(key="created_at")
-    
+        screen = self._active_list_screen()
+        if screen is not None:
+            await screen.sort_boxes(key="created_at")
+
     async def action_sort_modified(self) -> None:
-        await self.sort_boxes(key="modified_at")
-    
+        screen = self._active_list_screen()
+        if screen is not None:
+            await screen.sort_boxes(key="modified_at")
+
     async def action_search(self) -> None:
-        self.notify("search!")
-        await self.push_screen(SearchScreen(), callback=self.on_search_closed)
-    
+        await self.push_screen(SearchScreen())
+
+    async def action_show_songs(self) -> None:
+        await self.push_screen(SongScreen())
+
+    async def action_show_albums(self) -> None:
+        await self.push_screen(AlbumScreen())
+
     async def action_quit(self) -> None:
         self.exit()
-    
-    def on_search_closed(self, _result):
-        song_list = self.query_one('#song_list')
-        song_list.focus()
 
 
 # API INFORMATION
@@ -220,24 +101,23 @@ def wait_for_port(host: str, port: int, timeout_s: float = 5.0) -> bool:
                 time.sleep(0.1)
     return False
 
+
 def start_api() -> subprocess.Popen:
     # make a subprocess to start uvicorn
     env = os.environ.copy()
-    env.setdefault("MDO_API_URL", "http://127.0.0.1:8000") # default address
+    env.setdefault("MDO_API_URL", "http://127.0.0.1:8000")  # default address
     cmd = ["uvicorn", "app.main:app", "--host", "127.0.0.1", "--port", "8000"]
     return subprocess.Popen(cmd, env=env)
-        
 
 
 # ENTRY POINT
-
 if __name__ == "__main__":
     # also starting the backend. yum!
     api_proc = start_api()
     try:
         if not wait_for_port("127.0.0.1", 8000):
             raise RuntimeError("API did not start in time")
-        
+
         app = MdoApp()
         app.run()
     finally:

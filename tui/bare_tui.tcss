@@ -11,11 +11,61 @@ Horizontal {
     height: auto;
 }
 
+.album-btns,
 .song-btns {
     height: auto;
     align-horizontal: right;
 }
+.album-btns Button,
 .song-btns Button {
     border: none;
     align-horizontal: right;
+}
+
+AlbumBox {
+    border: solid $secondary;
+    padding: 0 0;
+    margin: 1;
+    width: 100%;
+}
+.album-btns {
+    height: auto;
+    align-horizontal: right;
+}
+.album-btns Button {
+    border: none;
+    align-horizontal: right;
+}
+
+TracklistScreen {
+    align: center middle;
+}
+
+#tracklist_panel {
+    width: 80%;
+    height: 80%;
+    border: solid $secondary;
+    /*background: $panel;*/
+    padding: 1 2;
+    align: center middle;
+}
+
+#tracklist_header {
+    /*dock: top;*/
+    width: 100%;
+    background: $panel;
+    color: $foreground;
+    height: auto;
+}
+
+#tracklist_title {
+    text-wrap: nowrap;
+    text-overflow: ellipsis;
+    content-align: center middle;
+    width: 1fr;
+}
+
+#close_tracklist {
+    border: none;
+    /*align-horizontal: right;*/
 }
