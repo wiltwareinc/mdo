@@ -1,7 +1,10 @@
 # wiltware 2026, some help/teaching from ChatGPT EDU Codex 5.3
+import os
+from pathlib import Path
 from typing import Dict
+from fastapi.responses import FileResponse
 from typing_extensions import List
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Query, status
 
 from app.deps import get_file_manager
 from app.schemas import (
@@ -54,6 +57,31 @@ def update_song(slug: str, payload: SongUpdate, fm: FileManager = Depends(get_fi
             return song
     raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Song updated but not found")
     
+@router.post("/songs/{slug}", response_model=SongOut)
+def add_lyric(slug: str, payload: SongUpdate, fm : FileManager = Depends(get_file_manager)) ->dict:
+    target = fm.droot / "songs" / slug
+    created = fm.create_lyrics(target, payload.name)
+    if created is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Lyrics not added")
+    fm.refresh_songs()
+    for song in fm.songs: #? can't re just return the slug that create_song makes?
+        if song["slug"] == created.name:
+            return song
+    raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Lyric created but not found")
+    
+ 
+@router.post("/songs/{slug}", response_model=SongOut)
+def add_project(slug: str, payload: SongUpdate, fm : FileManager = Depends(get_file_manager)) ->dict:
+    target = fm.droot / "songs" / slug
+    created = fm.create_project(target, payload.name)
+    if created is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Project not added")
+    fm.refresh_songs()
+    for song in fm.songs: #? can't re just return the slug that create_song makes?
+        if song["slug"] == created.name:
+            return song
+    raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Project created but not found")
+        
     
 ### ALBUMS ###
     
@@ -94,3 +122,28 @@ def update_album(slug: str, payload: AlbumUpdate, fm: FileManager = Depends(get_
             return album
     raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Album updated but not found")
     
+### Scary!
+@router.get("/files")
+def get_file(path: str = Query(...), mode: str = Query("text")):
+    target: Path = resolve_path(path)
+    if mode == "raw":
+        # raw binaries, for ex Reaper files
+        return FileResponse(target)
+    if mode == "text":
+        return {
+            "path": path, 
+            "content": target.read_text(encoding="utf-8")
+        }
+    raise HTTPException(status_code=400, detail="Invalid mode")
+
+def resolve_path(rel_path: str) -> Path:
+    """Check to see if the path is valid"""
+    root = Path(os.getenv("MDO_ROOT", "./music")).resolve()
+    target = (root /rel_path).resolve()
+    if not target.exists:
+        raise HTTPException(status_code=404, detail="File not found")
+    if root not in target.parents and target != root:
+        raise HTTPException(status_code=404, detail="File not found")
+    if target.is_dir():
+        raise HTTPException(status_code=400, detail="Path is a directory")
+    return target
