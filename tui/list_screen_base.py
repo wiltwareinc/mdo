@@ -1,10 +1,9 @@
 # wiltware
 # shared list screen helpers
 # note: authored by ChatGPT Codex 5.3
-from textual.containers import VerticalScroll
+from textual.containers import Horizontal, VerticalScroll
 from textual.screen import Screen
-from textual.widgets import Footer, Header
-
+from textual.widgets import Button, Footer, Header
 
 class BaseListScreen(Screen):
     LIST_ID = "item_list"
@@ -12,8 +11,17 @@ class BaseListScreen(Screen):
     def compose(self):
         self.boxes = [] # this seems like a hack but
         yield Header()
+        with Horizontal(id="screen_switcher"):
+            yield Button("Songs", id="go_songs")
+            yield Button("Albums", id="go_albums")
         yield VerticalScroll(id=self.LIST_ID)
         yield Footer()
+    
+    async def on_button_pressed(self, event: Button.Pressed) -> None:
+        if event.button.id == "go_songs":
+            await self.app.run_action("show_songs")
+        if event.button.id == "go_albums":
+            await self.app.run_action("show_albums")
 
     def on_resume(self) -> None:
         self.set_focus(self.query_one(f"#{self.LIST_ID}", VerticalScroll))

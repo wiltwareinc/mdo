@@ -14,12 +14,19 @@ Horizontal {
 .album-btns,
 .song-btns {
     height: auto;
-    align-horizontal: right;
+    /*align-horizontal: right;*/
+    align: right top;
 }
 .album-btns Button,
+.song-btns Select,
 .song-btns Button {
     border: none;
-    align-horizontal: right;
+    height: 1;
+    width: 100%;
+    padding: 0 0;
+}
+.song-btns Select {
+    height: 3;
 }
 
 AlbumBox {
@@ -32,18 +39,25 @@ AlbumBox {
     height: auto;
     align-horizontal: right;
 }
+
+EditScreen Button,
 .album-btns Button {
     border: none;
     align-horizontal: right;
 }
 
+NameScreen,
+DefaultProjScreen,
 TracklistScreen {
     align: center middle;
 }
 
+/*#edit_screen_panel,*/
 #tracklist_panel {
     width: 80%;
-    height: 80%;
+    /*height: 80%;*/
+    height: auto;
+    max-height: 80%;
     border: solid $secondary;
     /*background: $panel;*/
     padding: 1 2;
@@ -65,7 +79,25 @@ TracklistScreen {
     width: 1fr;
 }
 
-#close_tracklist {
+#close_window {
     border: none;
     /*align-horizontal: right;*/
+}
+
+#input_box {
+    /*height: 2;*/
+    /*width: auto;*/
+    max-width: 100%;
+}
+
+#screen_switcher {
+    height: auto;
+    padding: 0 1;
+    background: $panel;
+    align: center middle;
+}
+
+#screen_switcher Button {
+    margin-right: 1;
+    border: none;
 }

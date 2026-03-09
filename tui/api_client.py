@@ -44,3 +44,18 @@ def get_album(slug: str) -> Dict[str, Any]:
     resp = requests.get(_url(f"/albums/{slug}"), timeout=5)
     resp.raise_for_status()
     return resp.json()
+
+
+# EDIT
+
+
+def edit_song(slug: str, payload: dict) -> Dict[str, Any]:
+    resp = requests.patch(_url(f"/songs/{slug}"), json=payload, timeout=5)
+    logging.info(f"resp: {resp}")
+    try:
+        resp.raise_for_status()
+    except requests.HTTPError as exc:
+        # re-raise with status + body so UI can show it
+        raise RuntimeError(f"{resp.status_code}: {resp.text}") from exc
+
+    return resp.json()
