@@ -1,4 +1,5 @@
 # wiltware 2026, some help/teaching from ChatGPT EDU Codex 5.3
+import logging
 import os
 from pathlib import Path
 from typing import Dict
@@ -17,6 +18,13 @@ from app.schemas import (
 )
 from models.file_manager import FileManager
 router = APIRouter()
+
+
+logging.basicConfig(
+    filename="api.log",
+    level=logging.INFO,
+    format="%(asctime)s %(levelname)s %(name)s: %(message)s",
+)
 
 ### SONGS ###
 @router.get("/songs", response_model=List[SongOut])
@@ -47,8 +55,9 @@ def create_song(payload: SongCreate, fm: FileManager = Depends(get_file_manager)
     
 @router.patch("/songs/{slug}", response_model=SongOut)
 def update_song(slug: str, payload: SongUpdate, fm: FileManager = Depends(get_file_manager)) -> dict:
+    logging.debug("starting to update song now")
     target = fm.droot / "songs" / slug
-    updated = fm.edit_song(target, payload.name, payload.default_project)
+    updated = fm.edit_song(target, payload.title, payload.default_project)
     if updated is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Song not found or invalid update")
     fm.refresh_songs()
@@ -60,7 +69,7 @@ def update_song(slug: str, payload: SongUpdate, fm: FileManager = Depends(get_fi
 @router.post("/songs/{slug}", response_model=SongOut)
 def add_lyric(slug: str, payload: SongUpdate, fm : FileManager = Depends(get_file_manager)) ->dict:
     target = fm.droot / "songs" / slug
-    created = fm.create_lyrics(target, payload.name)
+    created = fm.create_lyrics(target, payload.title)
     if created is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Lyrics not added")
     fm.refresh_songs()
@@ -73,7 +82,7 @@ def add_lyric(slug: str, payload: SongUpdate, fm : FileManager = Depends(get_fil
 @router.post("/songs/{slug}", response_model=SongOut)
 def add_project(slug: str, payload: SongUpdate, fm : FileManager = Depends(get_file_manager)) ->dict:
     target = fm.droot / "songs" / slug
-    created = fm.create_project(target, payload.name)
+    created = fm.create_project(target, payload.title)
     if created is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Project not added")
     fm.refresh_songs()
@@ -102,7 +111,7 @@ def get_album(slug: str, fm: FileManager = Depends(get_file_manager)) -> dict:
 def create_album(payload: AlbumCreate, fm: FileManager = Depends(get_file_manager)) -> dict:
     created = fm.create_album(payload.title, payload.tracklist)
     if created is None:
-        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Album already exists or could not be created")
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Album already title or could not be created")
         # ^ possible a better detail
     fm.refresh_albums()
     for album in fm.albums: #? can't re just return the slug that create_album makes?
@@ -113,7 +122,7 @@ def create_album(payload: AlbumCreate, fm: FileManager = Depends(get_file_manage
 @router.patch("/albums/{slug}", response_model=AlbumOut)
 def update_album(slug: str, payload: AlbumUpdate, fm: FileManager = Depends(get_file_manager)) -> dict:
     target = fm.droot / "albums" / slug
-    updated = fm.edit_album(target, payload.name, payload.tracklist)
+    updated = fm.edit_album(target, payload.title, payload.tracklist)
     if updated is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Album not found or invalid update")
     fm.refresh_albums()
@@ -140,7 +149,7 @@ def resolve_path(rel_path: str) -> Path:
     """Check to see if the path is valid"""
     root = Path(os.getenv("MDO_ROOT", "./music")).resolve()
     target = (root /rel_path).resolve()
-    if not target.exists:
+    if not target.exists():
         raise HTTPException(status_code=404, detail="File not found")
     if root not in target.parents and target != root:
         raise HTTPException(status_code=404, detail="File not found")
