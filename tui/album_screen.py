@@ -29,7 +29,7 @@ class TracklistScreen(ModalScreen):
         with Vertical(id="tracklist_panel"):
             with Horizontal(id="tracklist_header"):
                 yield Label("Tracklist", id="tracklist_title")
-                yield Button("x", id="close_tracklist", flat=True)
+                yield Button("x", id="close_window", flat=True)
             yield VerticalScroll(id="track_list")
     
     async def on_mount(self) -> None:
@@ -40,7 +40,7 @@ class TracklistScreen(ModalScreen):
             await track_list.mount(SongBox(song))
     
     def on_button_pressed(self, event: Button.Pressed) -> None:
-        if event.button.id == "close_tracklist":
+        if event.button.id == "close_window":
             self.dismiss()
 
 class AlbumBox(Static):

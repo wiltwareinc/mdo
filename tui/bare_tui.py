@@ -14,6 +14,9 @@ from tui.song_screen import SongScreen
 
 
 class SearchScreen(ModalScreen):
+    BINDINGS = [
+        Binding("escape", "dismiss", "Close"),
+    ]
     def compose(self):
         self.previous_focus = self.app.screen.focused
         yield Input(placeholder="Search by title...", id="search")
