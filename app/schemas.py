@@ -38,7 +38,7 @@ class SongCreate(BaseModel):
     args: List[str] = []
 
 class SongUpdate(BaseModel):
-    name: Optional[str] = None
+    title: Optional[str] = None
     default_project: Optional[int] = None
 
 class AlbumCreate(BaseModel):
@@ -46,5 +46,5 @@ class AlbumCreate(BaseModel):
     tracklist: List[str]
     
 class AlbumUpdate(BaseModel):
-    name: Optional[str] = None
+    title: Optional[str] = None
     tracklist: Optional[List[str]] = None
