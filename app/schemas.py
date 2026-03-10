@@ -48,3 +48,10 @@ class AlbumCreate(BaseModel):
 class AlbumUpdate(BaseModel):
     title: Optional[str] = None
     tracklist: Optional[List[str]] = None
+    
+class LyricCreate(BaseModel):
+    title: str
+
+class ProjectCreate(BaseModel):
+    title: str
+    type: str = "Reaper"

@@ -12,6 +12,8 @@ from app.schemas import (
     AlbumCreate,
     AlbumOut,
     AlbumUpdate,
+    LyricCreate,
+    ProjectCreate,
     SongCreate,
     SongOut,
     SongUpdate,
@@ -66,28 +68,34 @@ def update_song(slug: str, payload: SongUpdate, fm: FileManager = Depends(get_fi
             return song
     raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Song updated but not found")
     
-@router.post("/songs/{slug}", response_model=SongOut)
-def add_lyric(slug: str, payload: SongUpdate, fm : FileManager = Depends(get_file_manager)) ->dict:
+@router.post("/songs/{slug}/lyrics", response_model=SongOut)
+def add_lyric(slug: str, payload: LyricCreate, fm : FileManager = Depends(get_file_manager)) ->dict:
     target = fm.droot / "songs" / slug
     created = fm.create_lyrics(target, payload.title)
     if created is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Lyrics not added")
+    # rebuild metadata so new lyric appears in API output
+    if fm.edit_song(target, None, None) is None:
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Lyric created but metadata update failed")
     fm.refresh_songs()
     for song in fm.songs: #? can't re just return the slug that create_song makes?
-        if song["slug"] == created.name:
+        if song["slug"] == slug:
             return song
     raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Lyric created but not found")
     
  
-@router.post("/songs/{slug}", response_model=SongOut)
-def add_project(slug: str, payload: SongUpdate, fm : FileManager = Depends(get_file_manager)) ->dict:
+@router.post("/songs/{slug}/projects", response_model=SongOut)
+def add_project(slug: str, payload: ProjectCreate, fm : FileManager = Depends(get_file_manager)) ->dict:
     target = fm.droot / "songs" / slug
     created = fm.create_project(target, payload.title)
     if created is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Project not added")
+    # rebuild metadata so new project/default is reflected in API output
+    if fm.edit_song(target, None, None) is None:
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Project created but metadata update failed")
     fm.refresh_songs()
     for song in fm.songs: #? can't re just return the slug that create_song makes?
-        if song["slug"] == created.name:
+        if song["slug"] == slug:
             return song
     raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Project created but not found")
         

@@ -4,6 +4,7 @@
 import os
 from pathlib import Path
 import subprocess
+from typing import Any
 from textual.binding import Binding
 from textual.containers import VerticalScroll, Horizontal, Vertical
 from textual.content import Content
@@ -11,9 +12,9 @@ from textual.events import Click
 from textual.reactive import Reactive
 from textual.screen import ModalScreen
 from textual.widget import Widget
-from textual.widgets import Button, Header, Input, Label, Select, Static
+from textual.widgets import Button, Checkbox, Header, Input, Label, Select, Static
 
-from tui.api_client import get_songs, edit_song
+from tui.api_client import create_lyric, create_project, get_songs, edit_song
 from tui.list_screen_base import BaseListScreen
 from tui.utils import _find_reaper, _open_file
 
@@ -21,7 +22,7 @@ from tui.utils import _find_reaper, _open_file
 class SongBox(Static):
     """Information for a song based on information."""
     # default_project = Reactive(0)
-    song = Reactive(None)
+    song: Reactive[dict[str, Any] | None] = Reactive(None)
 
     def __init__(self, song: dict, **kwargs) -> None:
         super().__init__(**kwargs)
@@ -29,6 +30,8 @@ class SongBox(Static):
         self.default_project = self.song["default_project"] or "None"
 
     def compose(self):
+        if self.song is None:
+            return
         lyrics = self.song["lyrics"]
         projects = self.song["projects"]
         renders = self.song["renders"]
@@ -67,19 +70,28 @@ class SongBox(Static):
                 f"(default {default}), Renders: {len(renders)}"
             )
             self.title.update(value["title"])
-        except:
+        except: # crummy code LOL
             pass
         
     
     async def on_select_changed(self, event: Select.Changed) -> None:
+        if self.song is None:
+            return
         action = event.value
         event.select.clear()
         if action == "change_name":
             self.app.push_screen(NameScreen(self.song, self))
         if action == "change_proj":
             self.app.push_screen(DefaultProjScreen(self.song, self))
+        if action == "create_project":
+            self.app.push_screen(CreateAssetScreen(self.song, self, "project"))
+        if action == "create_lyric":
+            self.app.push_screen(CreateAssetScreen(self.song, self, "lyric"))
+            
 
     def on_button_pressed(self, event: Button.Pressed) -> None:
+        if self.song is None:
+            return
         music_root = Path(os.getenv("MDO_ROOT", "./music")).resolve()
         sroot: Path = music_root / "songs" / self.song["slug"]
 
@@ -121,6 +133,7 @@ class SongScreen(BaseListScreen):
 
     def _get_data(self, box):
         return box.song
+
 
 class NameScreen(ModalScreen):
     BINDINGS = [
@@ -186,7 +199,12 @@ class DefaultProjScreen(ModalScreen):
     async def on_select_changed(self, event: Select.Changed) -> None:
         if event.select.id != "default_project_select":
             return
-        index = int(event.value)
+        value = event.value
+        if value is Select.BLANK:
+            return
+        if not isinstance(value, str):
+            return
+        index = int(value)
         updated = edit_song(self.song["slug"], {"default_project": index})
         # update it (probably can be cleaner)
         self.box.song = updated
@@ -197,4 +215,56 @@ class DefaultProjScreen(ModalScreen):
 
     def on_button_pressed(self, event: Button.Pressed) -> None:
         if event.button.id == "close_window":
+            self.dismiss()
+
+class CreateAssetScreen(ModalScreen):
+    """Creates an album/project. Both are similar, so I decided to combine both"""
+    BINDINGS = [
+        Binding("escape", "dismiss", "Close"),
+        Binding("Q", "app.exit", "Quit"),
+    ]
+    def __init__(self, song: dict, box: SongBox, type: str, **kwargs) -> None:
+        super().__init__(**kwargs)
+        self.song = song
+        self.box = box
+        self.type = type
+
+    def compose(self):
+        with Vertical(id="tracklist_panel"):
+            with Horizontal(id="tracklist_header"):
+                yield Label(f"Change {self.type}", id="tracklist_title")
+                yield Button("x", id="close_window", flat=True)
+            # with Horizontal():
+            #     yield Label("Enter name:")
+            #     yield Input(placeholder="Enter name...", id="input_box")
+            with Horizontal():
+                yield Checkbox("Open after creation?")
+                yield Button("Enter", id="enter_asset")
+
+    def on_button_pressed(self, event: Button.Pressed) -> None:
+        if event.button.id == "close_window":
+            self.dismiss()
+        if event.button.id == "enter_asset":
+            # name = self.query_one("#input_box", Input).value.strip()
+            # if not name:
+            #     self.notify("Name must not be empty")
+            #     return
+            name = self.song["title"] #? should we allow the user to change the name
+            if self.type == "lyric":
+                try:
+                    updated = create_lyric(self.song["slug"], {"title": name})
+                    self.box.song = updated
+                except RuntimeError as exc:
+                    self.notify(str(exc))
+                self.dismiss()
+                return
+            if self.type == "project":
+                try:
+                    updated = create_project(self.song["slug"], {"title": name})
+                    self.box.song = updated
+                except RuntimeError as exc:
+                    self.notify(str(exc))
+                self.dismiss()
+                return
+            self.notify("Not a valid option!")
             self.dismiss()
