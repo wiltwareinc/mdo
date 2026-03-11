@@ -5,18 +5,19 @@ from textual.containers import Horizontal, VerticalScroll
 from textual.screen import Screen
 from textual.widgets import Button, Footer, Header
 
+
 class BaseListScreen(Screen):
     LIST_ID = "item_list"
 
     def compose(self):
-        self.boxes = [] # this seems like a hack but
+        self.boxes = []  # this seems like a hack but
         yield Header()
         with Horizontal(id="screen_switcher"):
             yield Button("Songs", id="go_songs")
             yield Button("Albums", id="go_albums")
         yield VerticalScroll(id=self.LIST_ID)
         yield Footer()
-    
+
     async def on_button_pressed(self, event: Button.Pressed) -> None:
         if event.button.id == "go_songs":
             await self.app.run_action("show_songs")
@@ -37,7 +38,14 @@ class BaseListScreen(Screen):
 
     async def sort_boxes(self, key: str) -> None:
         item_list = self.query_one(f"#{self.LIST_ID}", VerticalScroll)
-        boxes = sorted(self.boxes, key=lambda b: self._get_data(b).get(key, "").lower())
+        reverse = key in {"modified_at"}
+        boxes = sorted(
+            self.boxes,
+            key=lambda b: self._get_data(b).get(
+                key, ""
+            ),  # note: lower() removed due to it seeming to by unncessesary
+            reverse=reverse,
+        )
         with self.app.batch_update():
             last = None
             for box in boxes:
