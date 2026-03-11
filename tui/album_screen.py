@@ -7,10 +7,10 @@ from textual.events import Click
 from textual.reactive import Reactive
 from textual.screen import ModalScreen
 from textual.widget import Widget
-from textual.widgets import Button, Header, Label, Static
+from textual.widgets import Button, Header, Input, Label, Static
 from pathlib import Path
 import os
-from tui.api_client import get_albums, get_song
+from tui.api_client import create_album, get_albums, get_song
 from tui.list_screen_base import BaseListScreen
 from tui.song_screen import SongBox
 from tui.utils import _open_file
@@ -76,7 +76,12 @@ class AlbumBox(Static):
             _open_file(aroot)
         
 class AlbumScreen(BaseListScreen):
+    def compose(self):
+        yield from super().compose()
+        
     async def on_mount(self) -> None:
+        switcher = self.query_one("#screen_switcher", Horizontal)
+        await switcher.mount(Button("New Album", id="new_album"))
         self.albums = get_albums()
         self.boxes = [AlbumBox(album) for album in self.albums]
         album_list = self.query_one(f"#{self.LIST_ID}", VerticalScroll)
@@ -85,3 +90,57 @@ class AlbumScreen(BaseListScreen):
 
     def _get_data(self, box):
         return box.album
+        
+    async def on_button_pressed(self, event: Button.Pressed) -> None:
+        if event.button.id =="new_album":
+            self.app.push_screen(NewAlbumScreen(on_created=self._add_album))
+            return
+        await super().on_button_pressed(event)
+    
+    async def _add_album(self, album: dict):
+        box = AlbumBox(album)
+        self.boxes.append(box)
+        album_list = self.query_one(f"#{self.LIST_ID}", VerticalScroll)
+        await album_list.mount(box)
+            
+            
+class NewAlbumScreen(ModalScreen):
+    BINDINGS = [
+        Binding("escape", "dismiss", "Close"),
+        Binding("Q", "app.exit", "Quit"),
+    ]
+    def __init__(self, on_created, **kwargs) -> None:
+        super().__init__(**kwargs)
+        self.on_created = on_created
+
+    def compose(self):
+        with Vertical(id="tracklist_panel"):
+            with Horizontal(id="tracklist_header"):
+                yield Label("Change name", id="tracklist_title")
+                yield Button("x", id="close_window", flat=True)
+            with Horizontal():
+                yield Label("Enter name:")
+                yield Input(placeholder="New name", id="input_box")
+
+    async def on_input_submitted(self, event: Input.Submitted) -> None: #?
+        new_name = event.value.strip()
+        self.notify(new_name)
+        if not new_name:
+            self.notify("Name cannot be empty")
+            return
+        try:
+            payload = {
+                "title": new_name,
+                "tracklist": [] # beta: no album make
+            }
+            created = create_album(new_name, payload)
+            await self.on_created(created)
+        except RuntimeError as exc:
+            self.notify(str(exc))
+        self.dismiss()
+
+    def on_button_pressed(self, event: Button.Pressed) -> None:
+        if event.button.id == "close_window":
+            self.dismiss()
+
+

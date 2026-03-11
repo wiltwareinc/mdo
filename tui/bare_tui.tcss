@@ -46,6 +46,8 @@ EditScreen Button,
     align-horizontal: right;
 }
 
+NewSongScreen,
+NewAlbumScreen,
 NameScreen,
 DefaultProjScreen,
 TracklistScreen {

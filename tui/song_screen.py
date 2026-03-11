@@ -14,7 +14,7 @@ from textual.screen import ModalScreen
 from textual.widget import Widget
 from textual.widgets import Button, Checkbox, Header, Input, Label, Select, Static
 
-from tui.api_client import create_lyric, create_project, get_songs, edit_song
+from tui.api_client import create_lyric, create_project, create_song, get_songs, edit_song
 from tui.list_screen_base import BaseListScreen
 from tui.utils import _find_reaper, _open_file
 
@@ -124,7 +124,12 @@ class SongBox(Static):
 
 
 class SongScreen(BaseListScreen):
+    def compose(self):
+        yield from super().compose()
+        
     async def on_mount(self) -> None:
+        switcher = self.query_one("#screen_switcher", Horizontal)
+        await switcher.mount(Button("New Song", id="new_song"))
         self.songs = get_songs()
         self.boxes = [SongBox(song) for song in self.songs]
         song_list = self.query_one(f"#{self.LIST_ID}", VerticalScroll)
@@ -134,6 +139,55 @@ class SongScreen(BaseListScreen):
     def _get_data(self, box):
         return box.song
 
+    async def on_button_pressed(self, event: Button.Pressed) -> None:
+        if event.button.id =="new_song":
+            self.app.push_screen(NewAlbumScreen(on_created=self._add_song))
+            return
+        await super().on_button_pressed(event)
+    
+    async def _add_song(self, song: dict):
+        box = SongBox(song)
+        self.boxes.append(box)
+        album_list = self.query_one(f"#{self.LIST_ID}", VerticalScroll)
+        await album_list.mount(box)
+
+class NewAlbumScreen(ModalScreen):
+    BINDINGS = [
+        Binding("escape", "dismiss", "Close"),
+        Binding("Q", "app.exit", "Quit"),
+    ]
+    def __init__(self, on_created, **kwargs) -> None:
+        super().__init__(**kwargs)
+        self.on_created = on_created
+
+    def compose(self):
+        with Vertical(id="tracklist_panel"):
+            with Horizontal(id="tracklist_header"):
+                yield Label("New Song", id="tracklist_title")
+                yield Button("x", id="close_window", flat=True)
+            with Horizontal():
+                yield Label("Enter name:")
+                yield Input(placeholder="New name", id="input_box")
+
+    async def on_input_submitted(self, event: Input.Submitted) -> None: #?
+        new_name = event.value.strip()
+        self.notify(new_name)
+        if not new_name:
+            self.notify("Name cannot be empty")
+            return
+        try:
+            payload = {
+                "title": new_name,
+            }
+            created = create_song(new_name, payload)
+            await self.on_created(created)
+        except RuntimeError as exc:
+            self.notify(str(exc))
+        self.dismiss()
+
+    def on_button_pressed(self, event: Button.Pressed) -> None:
+        if event.button.id == "close_window":
+            self.dismiss()
 
 class NameScreen(ModalScreen):
     BINDINGS = [

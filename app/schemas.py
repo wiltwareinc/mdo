@@ -43,7 +43,7 @@ class SongUpdate(BaseModel):
 
 class AlbumCreate(BaseModel):
     title:str
-    tracklist: List[str]
+    tracklist: Optional[List[str]]
     
 class AlbumUpdate(BaseModel):
     title: Optional[str] = None

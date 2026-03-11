@@ -117,7 +117,7 @@ def get_album(slug: str, fm: FileManager = Depends(get_file_manager)) -> dict:
     
 @router.post("/albums", response_model=AlbumOut, status_code=status.HTTP_201_CREATED)
 def create_album(payload: AlbumCreate, fm: FileManager = Depends(get_file_manager)) -> dict:
-    created = fm.create_album(payload.title, payload.tracklist)
+    created = fm.create_album(payload.title, payload.tracklist if payload.tracklist is not None else [])
     if created is None:
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Album already title or could not be created")
         # ^ possible a better detail
