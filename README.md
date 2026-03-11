@@ -28,3 +28,13 @@ There are a few different ways:
 
 ## Is there any AI Used?
 All AI generated code is made by ChatGPT 5.3 Codex. Mostly it is the tests, with minimal contributions to the codebase.
+
+## How can I Build this?
+The current method I am using to build this (for Linux) is as follows:
+```
+PYTHONPATH=. pyinstaller \
+  --name mdo \
+  --onefile \
+  --add-data "tui/bare_tui.tcss:tui" \
+  tui/bare_tui.py;
+```
