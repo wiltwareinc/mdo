@@ -6,3 +6,6 @@ __pycache__
 *.pyc
 .zed
 test/
+build/
+dist/
+mdo.spec

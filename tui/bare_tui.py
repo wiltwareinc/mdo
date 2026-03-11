@@ -2,15 +2,37 @@
 # barebones TUI to use this without a frontend using Textual
 import os
 import socket
-import subprocess
+import sys
+import threading
 import time
+from pathlib import Path
+
+import uvicorn
 from textual.app import App
 from textual.binding import Binding
 from textual.screen import ModalScreen, Screen
 from textual.widgets import Input
 
+from app.main import app as api_app
 from tui.album_screen import AlbumScreen
 from tui.song_screen import SongScreen
+
+
+def resolve_css_path() -> str:
+    local_css = Path(__file__).with_name("bare_tui.tcss")
+    if local_css.exists():
+        return str(local_css)
+
+    meipass = getattr(sys, "_MEIPASS", None)
+    if meipass:
+        bundled_css = Path(meipass) / "tui" / "bare_tui.tcss"
+        if bundled_css.exists():
+            return str(bundled_css)
+        fallback_css = Path(meipass) / "bare_tui.tcss"
+        if fallback_css.exists():
+            return str(fallback_css)
+
+    return "bare_tui.tcss"
 
 
 class SearchScreen(ModalScreen):
@@ -36,7 +58,7 @@ class MdoApp(App):
     """Entry point."""
 
     COMMAND_PALETTE_BINDING = "colon"
-    CSS_PATH = "bare_tui.tcss"
+    CSS_PATH = resolve_css_path()
     BINDINGS = [
         Binding("n", "sort_name", "Sort by name", show=True),
         Binding("c", "sort_created", "Sort by created", show=True),
@@ -105,18 +127,20 @@ def wait_for_port(host: str, port: int, timeout_s: float = 5.0) -> bool:
     return False
 
 
-def start_api() -> subprocess.Popen:
-    # make a subprocess to start uvicorn
-    env = os.environ.copy()
-    env.setdefault("MDO_API_URL", "http://127.0.0.1:8000")  # default address
-    cmd = ["uvicorn", "app.main:app", "--host", "127.0.0.1", "--port", "8000"]
-    return subprocess.Popen(cmd, env=env)
+def start_api() -> tuple[uvicorn.Server, threading.Thread]:
+    # run uvicorn in-process so packaged binaries do not depend on external imports
+    os.environ.setdefault("MDO_API_URL", "http://127.0.0.1:8000")
+    config = uvicorn.Config(api_app, host="127.0.0.1", port=8000, log_level="info")
+    server = uvicorn.Server(config)
+    thread = threading.Thread(target=server.run, daemon=True)
+    thread.start()
+    return server, thread
 
 
 # ENTRY POINT
 if __name__ == "__main__":
     # also starting the backend. yum!
-    api_proc = start_api()
+    api_server, api_thread = start_api()
     try:
         if not wait_for_port("127.0.0.1", 8000):
             raise RuntimeError("API did not start in time")
@@ -124,5 +148,5 @@ if __name__ == "__main__":
         app = MdoApp()
         app.run()
     finally:
-        api_proc.terminate()
-        api_proc.wait(timeout=5)
+        api_server.should_exit = True
+        api_thread.join(timeout=5)
