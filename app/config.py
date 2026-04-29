@@ -1,0 +1,67 @@
+# wiltware 2026
+# configuration layout
+# json will look something like:
+# {
+#     "root:" "~/Projects/music",
+#     "templates": {
+#         "Reaper": "~/Media/Templates/reaper_default.RPP",
+#     }
+# }
+from __future__ import annotations
+from dataclasses import dataclass
+import json
+import os
+from pathlib import Path
+
+
+@dataclass
+class MdoConfig:
+    root: Path
+    templates: dict[str, Path] # ex "Reaper": <path_file>
+    # api stuff soon?
+
+def default_config_path() -> Path:
+    # temporary: inside of the working directory
+    return Path.cwd() / ".config.json"
+
+def load_config_file(path: Path) -> dict:
+    if not path.exists():
+        return {}
+
+    with open(path, "r") as f:
+        return json.load(f)
+
+def expand_optional_path(v: str | None) -> Path | None:
+    # helper function to ensure we dont try to exdpand None
+    if not v:
+        return None
+    return Path(v).expanduser().resolve()
+
+
+def get_config() -> MdoConfig:
+    config_path = Path(os.getenv("MDO_CONFIG", default_config_path())).expanduser()
+    raw = load_config_file(config_path)
+
+    music_root_raw = os.getenv("MDO_ROOT") or raw.get("root") # priority to runtime
+    music_root  = expand_optional_path(music_root_raw)
+    if music_root is None:
+        raise ValueError("music_root is not set")
+
+    raw_templates = raw.get("templates", {})
+    templates = {}
+
+    if isinstance(raw_templates, dict): #?
+        for name, value in raw_templates.items():
+            path = expand_optional_path(value)
+            if path is not None:
+                templates[name] = path
+
+    # temp?
+    reaper_override = expand_optional_path(os.getenv("MDO_REAPER_TEMPLATE"))
+    if reaper_override is not None:
+        templates["Reaper"] = reaper_override
+
+    return MdoConfig(
+        root=music_root,
+        templates=templates,
+    )

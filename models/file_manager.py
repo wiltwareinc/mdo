@@ -2,9 +2,11 @@
 # essentially the backend with filesystems
 import json
 import logging
+import os
 import shutil
 import sys
 import time
+from app.config import get_config
 from datetime import datetime
 from pathlib import Path
 from typing import Optional
@@ -393,9 +395,14 @@ class FileManager:
         candidate.mkdir()
 
         # for now we are just grabbing the reaper default, will be extensible in the future
-        reaper_default = Path(
-            "~/.config/REAPER/ProjectTemplates/default.RPP"
-        ).expanduser()
+        # reaper_default = Path(
+        #     "~/.config/REAPER/ProjectTemplates/default.RPP"
+        # ).expanduser()
+        reaper_default = get_config().reaper_default
+        if reaper_default is None:
+            logging.error("No reaper template configured.")
+            return None
+        
         dest = candidate / f"{title}.RPP"
         shutil.copy2(reaper_default, dest)
 

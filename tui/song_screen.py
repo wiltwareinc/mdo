@@ -4,6 +4,7 @@
 import os
 from pathlib import Path
 import subprocess
+from app.config import get_config
 from typing import Any
 from textual.binding import Binding
 from textual.containers import VerticalScroll, Horizontal, Vertical
@@ -95,7 +96,7 @@ class SongBox(Static):
     def on_button_pressed(self, event: Button.Pressed) -> None:
         if self.song is None:
             return
-        music_root = Path(os.getenv("MDO_ROOT", "./music")).resolve()
+        music_root = get_config().root
         sroot: Path = music_root / "songs" / self.song["slug"]
 
         if event.button.id == "open_project":
@@ -342,7 +343,7 @@ class LyricsScreen(ModalScreen):
         lyrics = self.song.get("lyrics", [])
         lyric = lyrics[-1]["path"] if lyrics else None
         if lyric:
-            music_root = Path(os.getenv("MDO_ROOT", "./music")).resolve()
+            music_root = get_config().root
             sroot: Path = music_root / "songs" / self.song["slug"]
             self.lyrics = get_file(sroot / lyric)
         else:

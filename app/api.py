@@ -1,6 +1,7 @@
 # wiltware 2026, some help/teaching from ChatGPT EDU Codex 5.3
 import logging
 import os
+from app.config import get_config
 from pathlib import Path
 from typing import Dict
 from fastapi.responses import FileResponse
@@ -155,7 +156,7 @@ def get_file(path: str = PathParam(...), mode: str = Query("text")):
 
 def resolve_path(rel_path: str) -> Path:
     """Check to see if the path is valid"""
-    root = Path(os.getenv("MDO_ROOT", "./music")).resolve()
+    root = get_config().root
     target = (root /rel_path).resolve()
     if not target.exists():
         raise HTTPException(status_code=404, detail="File not found")

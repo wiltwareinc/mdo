@@ -2,7 +2,7 @@
 # connect watcher to everything
 
 import json
-import os
+from app.config import get_config
 from pathlib import Path
 
 from models.file_manager import FileManager
@@ -38,7 +38,7 @@ def on_change(fm: FileManager, kind: str, path: Path) -> None:
         return
     
 def main() -> None:
-    root = Path(os.getenv("MDO_ROOT", "./music")).resolve()
+    root = get_config().root
     fm = FileManager(root)
     
     def _callback(kind: str, path: Path) -> None:

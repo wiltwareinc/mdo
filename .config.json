@@ -1,0 +1,6 @@
+{
+  "root": "./music",
+  "templates": {
+    "Reaper": "~/Library/Application Support/REAPER/ProjectTemplates/default.RPP"
+  }
+}

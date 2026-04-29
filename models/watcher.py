@@ -1,5 +1,5 @@
 # wiltware 2026, with help/tutoring from ChatGPT EDU Codex 5.3
-import os # why?
+from app.config import get_config
 from dataclasses import dataclass, field
 from pathlib import Path
 import time
@@ -94,5 +94,5 @@ if __name__ == "__main__":
     def _print_change(kind: str, path: Path) -> None:
         print(f"change: {kind} -> {path}")
     
-    root_path = Path(os.getenv("MDO_ROOT", "./music")).resolve() # temporary
+    root_path = get_config().root
     run_watcher(root_path, _print_change)

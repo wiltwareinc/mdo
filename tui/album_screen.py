@@ -1,5 +1,6 @@
 # wiltware 2026
 # seperate file just for the album screen
+from app.config import get_config
 from textual.app import RenderResult
 from textual.binding import Binding
 from textual.containers import VerticalScroll, Horizontal, Vertical
@@ -82,7 +83,7 @@ class AlbumBox(Static):
                     yield Button("Edit Album", id="edit_album")
     
     def on_button_pressed(self, event: Button.Pressed) -> None:
-        music_root = Path(os.getenv("MDO_ROOT", "./music")).resolve()
+        music_root = get_config().root
         aroot: Path = music_root / "albums" / self.album["slug"]
         
         if event.button.id == "open_tracklist":
