@@ -42,6 +42,7 @@ class FileManager:
             logger.error("No root provided. Unable to continue.")
             sys.exit(1)
         self.droot = droot
+        self._ensure_layout()
         # array of albums (slug, title, tracklist (in slugs), created, modified)
         self.albums = []
         self.albums_set = []
