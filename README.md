@@ -38,3 +38,4 @@ PYTHONPATH=. pyinstaller \
   --add-data "tui/bare_tui.tcss:tui" \
   tui/bare_tui.py;
 ```
+Python 3.12 is required.
