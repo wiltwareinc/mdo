@@ -46,12 +46,34 @@ EditScreen Button,
     align-horizontal: right;
 }
 
+LyricsScreen,
 NewSongScreen,
 NewAlbumScreen,
 NameScreen,
 DefaultProjScreen,
 TracklistScreen {
     align: center middle;
+}
+
+LyricsScreen {
+    width: 100%;
+    height: 100%;
+}
+
+LyricsScreen #tracklist_panel {
+    width: 100%;
+    height: 100%;
+    max-height: 100%;
+    padding: 0 1;
+}
+
+LyricsScreen #tracklist_header {
+    height: auto;
+}
+
+LyricsScreen #lyrics_scroll {
+    width: 100%;
+    height: 1fr;
 }
 
 /*#edit_screen_panel,*/
@@ -102,4 +124,18 @@ TracklistScreen {
 #screen_switcher Button {
     margin-right: 1;
     border: none;
+}
+
+.tracklist_order {
+    width: 10%;
+    min-width: 3;
+    max-width: 8;
+    height: auto;
+}
+
+.tracklist_order Button {
+    width: 100%;
+    min-width: 3;
+    height: 3;
+    content-align: center middle;
 }

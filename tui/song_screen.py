@@ -14,7 +14,7 @@ from textual.screen import ModalScreen
 from textual.widget import Widget
 from textual.widgets import Button, Checkbox, Header, Input, Label, Select, Static
 
-from tui.api_client import create_lyric, create_project, create_song, get_songs, edit_song
+from tui.api_client import create_lyric, create_project, create_song, get_songs, edit_song, get_file
 from tui.list_screen_base import BaseListScreen
 from tui.utils import _find_reaper, _open_file
 
@@ -53,6 +53,7 @@ class SongBox(Static):
                             ("Change default project", "change_proj"),
                             ("Create project", "create_project"),
                             ("Create lyric", "create_lyric"),
+                            ("Expose lyrics", "expose_lyrics")
                         ]
                     )
             self.meta_label = Label(f"Lyrics: {len(lyrics)}, Projects: {len(projects)} (default {self.default_project}), Renders: {len(renders)}")
@@ -87,6 +88,8 @@ class SongBox(Static):
             self.app.push_screen(CreateAssetScreen(self.song, self, "project"))
         if action == "create_lyric":
             self.app.push_screen(CreateAssetScreen(self.song, self, "lyric"))
+        if action == "expose_lyrics":
+            self.app.push_screen(LyricsScreen(self.song, self))
             
 
     def on_button_pressed(self, event: Button.Pressed) -> None:
@@ -135,6 +138,7 @@ class SongScreen(BaseListScreen):
         song_list = self.query_one(f"#{self.LIST_ID}", VerticalScroll)
         for box in self.boxes:
             await song_list.mount(box)
+        await self.sort_boxes(key="modified_at")
 
     def _get_data(self, box):
         return box.song
@@ -150,6 +154,7 @@ class SongScreen(BaseListScreen):
         self.boxes.append(box)
         album_list = self.query_one(f"#{self.LIST_ID}", VerticalScroll)
         await album_list.mount(box)
+        await self.sort_boxes(key="modified_at")
 
 class NewAlbumScreen(ModalScreen):
     BINDINGS = [
@@ -321,4 +326,38 @@ class CreateAssetScreen(ModalScreen):
                 self.dismiss()
                 return
             self.notify("Not a valid option!")
+            self.dismiss()
+
+class LyricsScreen(ModalScreen):
+    """Creates an album/project. Both are similar, so I decided to combine both"""
+    BINDINGS = [
+        Binding("escape", "dismiss", "Close"),
+        Binding("Q", "app.exit", "Quit"),
+    ]
+    def __init__(self, song: dict, box: SongBox, **kwargs) -> None:
+        super().__init__(**kwargs)
+        self.song = song
+        self.box = box
+        # get lyrics
+        lyrics = self.song.get("lyrics", [])
+        lyric = lyrics[-1]["path"] if lyrics else None
+        if lyric:
+            music_root = Path(os.getenv("MDO_ROOT", "./music")).resolve()
+            sroot: Path = music_root / "songs" / self.song["slug"]
+            self.lyrics = get_file(sroot / lyric)
+        else:
+            self.notify("No lyrics found!")
+
+    def compose(self):
+        with Vertical(id="tracklist_panel"):
+            with Horizontal(id="tracklist_header"):
+                yield Label(f"Lyrics", id="tracklist_title")
+                yield Button("x", id="close_window", flat=True)
+            # yield Label(self.lyrics["content"])
+            with VerticalScroll():
+                yield Static(self.lyrics["content"])
+    
+
+    def on_button_pressed(self, event: Button.Pressed) -> None:
+        if event.button.id == "close_window":
             self.dismiss()

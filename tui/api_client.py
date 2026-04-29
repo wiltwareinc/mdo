@@ -45,6 +45,11 @@ def get_album(slug: str) -> Dict[str, Any]:
     resp.raise_for_status()
     return resp.json()
 
+def get_file(slug: str) -> Dict[str, Any]:
+    resp = requests.get(_url(f"/files/{slug}"), timeout=5)
+    resp.raise_for_status()
+    return resp.json()
+
 
 # EDIT
 

@@ -15,6 +15,21 @@ from tui.list_screen_base import BaseListScreen
 from tui.song_screen import SongBox
 from tui.utils import _open_file
 
+class TracklistSongBox(Static):
+    def __init__(self, song: dict, track_num: int, **kwargs) -> None:
+        super().__init__(**kwargs)
+        self.song = song
+        self.track_num = track_num
+
+    def compose(self):
+        with Horizontal(classes="box-base"):
+            with Vertical(classes="tracklist_order"):
+                yield Button("^", id="move_track_up", flat=True)
+                yield Input(f"{self.track_num}", id="track_number")
+                yield Button("v", id="move_track_down", flat=True)
+            yield SongBox(self.song)
+    
+
 class TracklistScreen(ModalScreen):
     """Popup screen for a given album's tracklist"""
     BINDINGS = [
@@ -37,11 +52,13 @@ class TracklistScreen(ModalScreen):
         tracks = sorted(self.album["tracklist"], key=lambda t: t["number"])
         for track in tracks:
             song = get_song(track["slug"])
-            await track_list.mount(SongBox(song))
+            # await track_list.mount(SongBox(song))
+            await track_list.mount(TracklistSongBox(song, track["number"]))
     
     def on_button_pressed(self, event: Button.Pressed) -> None:
         if event.button.id == "close_window":
             self.dismiss()
+
 
 class AlbumBox(Static):
     """Information for an album based on API JSON."""

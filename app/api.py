@@ -5,7 +5,7 @@ from pathlib import Path
 from typing import Dict
 from fastapi.responses import FileResponse
 from typing_extensions import List
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Depends, HTTPException, Path as PathParam, Query, status
 
 from app.deps import get_file_manager
 from app.schemas import (
@@ -140,15 +140,15 @@ def update_album(slug: str, payload: AlbumUpdate, fm: FileManager = Depends(get_
     raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Album updated but not found")
     
 ### Scary!
-@router.get("/files")
-def get_file(path: str = Query(...), mode: str = Query("text")):
+@router.get("/files/{path:path}")
+def get_file(path: str = PathParam(...), mode: str = Query("text")):
     target: Path = resolve_path(path)
     if mode == "raw":
         # raw binaries, for ex Reaper files
         return FileResponse(target)
     if mode == "text":
         return {
-            "path": path, 
+            "path": path,
             "content": target.read_text(encoding="utf-8")
         }
     raise HTTPException(status_code=400, detail="Invalid mode")
