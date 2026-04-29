@@ -14,6 +14,7 @@ from zoneinfo import ZoneInfo
 
 from typing_extensions import Any, Dict, List
 
+
 # logger (authored by ChatGPT 5.3)
 LOG_PATH = Path(__file__).resolve().parents[1] / "file_manager.log"
 logger = logging.getLogger("mdo.file_manager")
@@ -33,21 +34,14 @@ def _ensure_file_manager_logger() -> None:
         )
         logger.addHandler(_handler)
 
-_ensure_file_manager_logger()
-logger.debug("stretching my legs")
-
-
 class FileManager:
+    REQUIRED_DIRS = ["songs", "albums"]
     def __init__(self, droot: Path) -> None:
         _ensure_file_manager_logger()
         if not droot:
             logger.error("No root provided. Unable to continue.")
             sys.exit(1)
         self.droot = droot
-        # fuckass debug??
-        # logdir: Path = droot / ".." / "file_manager.log"
-        # logger.basicConfig(filename=str(logdir))
-        logger.debug("goood morning file manager!")
         # array of albums (slug, title, tracklist (in slugs), created, modified)
         self.albums = []
         self.albums_set = []
@@ -58,6 +52,18 @@ class FileManager:
         self.refresh_songs()
         self.refresh_albums()
 
+    def _ensure_layout(self) -> None:
+        if self.droot.exists() and not self.droot.is_dir():
+            raise NotADirectoryError(f"{self.droot} is not a directory")
+
+        self.droot.mkdir(parents=True, exist_ok=True)
+
+        for dirname in self.REQUIRED_DIRS:
+            path = self.droot / dirname
+            if path.exists() and not path.is_dir():
+                raise NotADirectoryError(f"{path} is not a directory")
+            path.mkdir(exist_ok=True)
+    
     # READING
 
     def read_songs(self) -> List[Dict[str, Any]]:
