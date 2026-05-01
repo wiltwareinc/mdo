@@ -364,22 +364,29 @@ class CreateAssetScreen(ModalScreen):
                 options = [(name, name) for name in templates.keys()]
                 yield Select(options, id="project_type_select") # also add a default option
             with Horizontal():
-                yield Checkbox("Open after creation?")
+                yield Checkbox("Open after creation?", id="open_after_creation")
                 yield Button("Enter", id="enter_asset")
 
     def on_button_pressed(self, event: Button.Pressed) -> None:
         if event.button.id == "close_window":
             self.dismiss()
         if event.button.id == "enter_asset":
-            # name = self.query_one("#input_box", Input).value.strip()
-            # if not name:
-            #     self.notify("Name must not be empty")
-            #     return
+            open_after_create = self.query_one("#open_after_creation", Checkbox).value
+            music_root = get_config().root
+            sroot = music_root / "songs" / self.song["slug"]
+            
             name = self.song["title"]  # ? should we allow the user to change the name
             if self.type == "lyric":
                 try:
                     updated = create_lyric(self.song["slug"], {"title": name})
                     self.box.song = updated
+
+                    if open_after_create:
+                        lyrics = updated["lyrics"]
+                        lyric = lyrics[-1]["path"] if lyrics else None
+                        if lyric:
+                            _open_file(sroot / lyric)
+
                 except RuntimeError as exc:
                     self.notify(str(exc))
                 self.dismiss()
@@ -392,6 +399,13 @@ class CreateAssetScreen(ModalScreen):
                 try:
                     updated = create_project(self.song["slug"], {"title": name, "type": selected})
                     self.box.song = updated
+
+                    if open_after_create:
+                        projects = updated.get("projects", [])
+                        project = projects[-1]["path"] if projects else None
+                        if project:
+                            _open_file(_find_project_file(sroot / project))
+                    
                 except RuntimeError as exc:
                     self.notify(str(exc))
                 self.dismiss()

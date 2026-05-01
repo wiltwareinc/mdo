@@ -61,7 +61,7 @@ def _find_project_file(project: Path) -> Path:
     
 
     for f in files:
-        if f.stem == title_candidates:
+        if f.stem in title_candidates:
             return f
     
     return files[0] if files else project
