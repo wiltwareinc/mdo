@@ -51,6 +51,7 @@ NewSongScreen,
 NewAlbumScreen,
 NameScreen,
 DefaultProjScreen,
+OpenProjectScreen,
 TracklistScreen {
     align: center middle;
 }

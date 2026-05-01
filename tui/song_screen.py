@@ -61,6 +61,7 @@ class SongBox(Static):
                         options=[
                             ("Change name", "change_name"),
                             ("Change default project", "change_proj"),
+                            ("Open other project", "open_other_project"),
                             ("Create project", "create_project"),
                             ("Create lyric", "create_lyric"),
                             ("Expose lyrics", "expose_lyrics"),
@@ -97,6 +98,8 @@ class SongBox(Static):
             self.app.push_screen(DefaultProjScreen(self.song, self))
         if action == "create_project":
             self.app.push_screen(CreateAssetScreen(self.song, self, "project"))
+        if action == "open_other_project":
+            self.app.push_screen(OpenProjectScreen(self.song, self))
         if action == "create_lyric":
             self.app.push_screen(CreateAssetScreen(self.song, self, "lyric"))
         if action == "expose_lyrics":
@@ -284,6 +287,51 @@ class DefaultProjScreen(ModalScreen):
         self.box.song = updated
         self.box.default_project = updated["default_project"] or "None"
         # self.box.refresh()
+        self.dismiss()
+
+    def on_button_pressed(self, event: Button.Pressed) -> None:
+        if event.button.id == "close_window":
+            self.dismiss()
+
+class OpenProjectScreen(ModalScreen):
+    BINDINGS = [
+        Binding("escape", "dismiss", "Close"),
+        Binding("Q", "app.exit", "Quit"),
+    ]
+
+    def __init__(self, song: dict, box: SongBox, **kwargs) -> None:
+        super().__init__(**kwargs)
+        self.song = song
+        self.box = box
+
+    def compose(self):
+        with Vertical(id="tracklist_panel"):
+            with Horizontal(id="tracklist_header"):
+                yield Label("Open project", id="tracklist_title")
+                yield Button("x", id="close_window", flat=True)
+
+            options = [
+                (Path(p["path"]).name, p["path"])
+                for p in self.song.get("projects", [])
+            ]
+            yield Select(options, id="open_project_select")
+
+    async def on_select_changed(self, event: Select.Changed) -> None:
+        if event.select.id != "open_project_select":
+            return
+
+        value = event.value
+        if value is Select.BLANK:
+            return
+        if not isinstance(value, str):
+            return
+
+        music_root = get_config().root
+        sroot = music_root / "songs" / self.song["slug"]
+        project = _find_project_file(sroot / value)
+
+        self.notify(f"open {project}")
+        _open_file(project)
         self.dismiss()
 
     def on_button_pressed(self, event: Button.Pressed) -> None:
