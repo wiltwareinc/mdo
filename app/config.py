@@ -17,8 +17,13 @@ from pathlib import Path
 @dataclass
 class MdoConfig:
     root: Path
-    templates: dict[str, Path] # ex "Reaper": <path_file>
+    templates: dict[str, ProjectTemplate] # ex "Reaper": ["path":<path_file>, "folder": false]
     # api stuff soon?
+
+@dataclass
+class ProjectTemplate:
+    root: Path
+    folder: bool = False
 
 def default_config_path() -> Path:
     # temporary: inside of the working directory
@@ -31,11 +36,12 @@ def load_config_file(path: Path) -> dict:
     with open(path, "r") as f:
         return json.load(f)
 
-def expand_optional_path(v: str | None) -> Path | None:
+def expand_optional_path(v: str | None, resolve: bool = True) -> Path | None:
     # helper function to ensure we dont try to exdpand None
     if not v:
         return None
-    return Path(v).expanduser().resolve()
+    path = Path(v).expanduser()
+    return path.resolve() if resolve else path
 
 
 def get_config() -> MdoConfig:
@@ -52,9 +58,15 @@ def get_config() -> MdoConfig:
 
     if isinstance(raw_templates, dict): #?
         for name, value in raw_templates.items():
-            path = expand_optional_path(value)
-            if path is not None:
-                templates[name] = path
+            if isinstance(value, str):
+                path = expand_optional_path(value, resolve = False)
+                if path is not None:
+                    templates[name] = ProjectTemplate(root=path)
+            elif isinstance(value, dict): # more info for the project templates
+                path = expand_optional_path(value.get("path"), resolve=False)
+                folder = bool(value.get("folder", False))
+                if path is not None:
+                    templates[name] = ProjectTemplate(root=path, folder=folder)
 
     # temp?
     reaper_override = expand_optional_path(os.getenv("MDO_REAPER_TEMPLATE"))

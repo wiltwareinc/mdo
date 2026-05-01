@@ -6,7 +6,7 @@ import os
 import shutil
 import sys
 import time
-from app.config import get_config
+from app.config import ProjectTemplate, get_config
 from datetime import datetime
 from pathlib import Path
 from typing import Optional
@@ -49,6 +49,8 @@ class FileManager:
         # array of songs (in terms of (slug, name, # of lyrics, # of projects, # of renders, creation date, modified date)
         self.songs = []
         self.songs_set = []
+
+        self.config = get_config()
         
         self.refresh_songs()
         self.refresh_albums()
@@ -371,12 +373,13 @@ class FileManager:
 
         return candidate
 
-    def create_project(self, root: Path, title) -> Optional[Path]:
+    def create_project(self, root: Path, title: str, project_type: str | None = None) -> Optional[Path]:
         """
         Creates a project.
 
         Args:
             root: Root of song to create a project in
+            project_type: type of project to make
         Returns:
             Path of the project specific file (ex. a .RPP file for Reaper)
 
@@ -401,17 +404,40 @@ class FileManager:
             candidate = projectd / f"{slug}-{counter}"
         candidate.mkdir()
 
-        # for now we are just grabbing the reaper default, will be extensible in the future
-        # reaper_default = Path(
-        #     "~/.config/REAPER/ProjectTemplates/default.RPP"
-        # ).expanduser()
-        reaper_default = get_config().reaper_default
-        if reaper_default is None:
-            logging.error("No reaper template configured.")
+        # check templates
+        templates: dict[str, Path] = self.config.templates
+        if not templates:
+            logger.error("No templates configured.")
             return None
-        
-        dest = candidate / f"{title}.RPP"
-        shutil.copy2(reaper_default, dest)
+
+        if project_type is None:
+            # get the first template
+            project_type = next(iter(templates))
+
+        project_template: ProjectTemplate = templates.get(project_type)  # pyright: ignore[reportAssignmentType]
+        template = project_template.root
+        if template is None:
+            logger.error(f"No template configured for project type {project_type}.")
+            return None
+
+        if not template.exists():
+            logger.error(f"Template {template} does not exist.")
+            return None
+
+        # we have the accurate template, let's make it!
+        # note: some version use folder structus, implement that properly
+        if project_template.folder:
+            dest = candidate / f"{title}"
+            shutil.copytree(template.parent, dest) # copy the PARENT folder ! this doesn't support multi-nested project files
+            # now, rename the actual file
+            # guard to prevent shutil from complaining
+            old_path = dest / template.name
+            new_path = dest / f"{title}{template.suffix}"
+            if old_path != new_path:
+                shutil.move(old_path, new_path)
+        else:
+            dest = candidate / f"{title}{template.suffix}"
+            shutil.copy2(template, dest)
 
         return dest
 

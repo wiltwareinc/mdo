@@ -1745,3 +1745,6 @@ jack: deactivated client
 jack: close client
 2026-03-10 20:19:24,629 INFO root: resp: <Response [201]>
 2026-03-10 20:24:45,703 INFO root: resp: <Response [201]>
+No application knows how to open URL file:///Users/nat/Projects/code/mdo/music/songs/20260501-test/projects/20260501-test/.DS_Store (Error Domain=NSOSStatusErrorDomain Code=-10814 "kLSApplicationNotFoundErr: E.g. no application claims the file" UserInfo={_LSLine=1973, _LSFunction=runEvaluator, _LSFile=LSBindingEvaluator.mm, _LSErrorMessage=kLSApplicationNotFoundErr}).
+No application knows how to open URL file:///Users/nat/Projects/code/mdo/music/songs/20260501-test/projects/20260501-test/.DS_Store (Error Domain=NSOSStatusErrorDomain Code=-10814 "kLSApplicationNotFoundErr: E.g. no application claims the file" UserInfo={_LSLine=1973, _LSFunction=runEvaluator, _LSFile=LSBindingEvaluator.mm, _LSErrorMessage=kLSApplicationNotFoundErr}).
+No application knows how to open URL file:///Users/nat/Projects/code/mdo/music/songs/20260501-test/projects/20260501-test/.DS_Store (Error Domain=NSOSStatusErrorDomain Code=-10814 "kLSApplicationNotFoundErr: E.g. no application claims the file" UserInfo={_LSLine=1973, _LSFunction=runEvaluator, _LSFile=LSBindingEvaluator.mm, _LSErrorMessage=kLSApplicationNotFoundErr}).

@@ -88,7 +88,7 @@ def add_lyric(slug: str, payload: LyricCreate, fm : FileManager = Depends(get_fi
 @router.post("/songs/{slug}/projects", response_model=SongOut)
 def add_project(slug: str, payload: ProjectCreate, fm : FileManager = Depends(get_file_manager)) ->dict:
     target = fm.droot / "songs" / slug
-    created = fm.create_project(target, payload.title)
+    created = fm.create_project(target, payload.title, payload.type)
     if created is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Project not added")
     # rebuild metadata so new project/default is reflected in API output

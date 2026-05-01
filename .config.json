@@ -1,6 +1,13 @@
 {
-  "root": "./music",
+  "root": "~/Projects/code/mdo/music",
   "templates": {
-    "Reaper": "~/Library/Application Support/REAPER/ProjectTemplates/default.RPP"
+    "Reaper": {
+      "path": "~/Media/Templates/default.RPP",
+      "folder": false
+    },
+    "Ableton": {
+      "path": "~/Media/Templates/ableton/default.als",
+      "folder": true
+    }
   }
 }
