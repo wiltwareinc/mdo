@@ -265,10 +265,8 @@ class DefaultProjScreen(ModalScreen):
             with Horizontal():
                 # intergers
                 options = [
-                    (f"{i}. {Path(p['path']).name}", str(i))
-                    for i, p in enumerate(
-                        self.song.get("projects", []), start=1
-                    )  # 1 indexed
+                    (Path(p["path"]).name, p["path"])
+                    for p in self.song.get("projects", [])
                 ]
                 # yield Select((proj["path"], proj["path"]) for proj in self.song["projects"])
                 yield Select(options, id="default_project_select")
@@ -281,8 +279,7 @@ class DefaultProjScreen(ModalScreen):
             return
         if not isinstance(value, str):
             return
-        index = int(value)
-        updated = edit_song(self.song["slug"], {"default_project": index})
+        updated = edit_song(self.song["slug"], {"default_project": value})
         # update it (probably can be cleaner)
         self.box.song = updated
         self.box.default_project = updated["default_project"] or "None"

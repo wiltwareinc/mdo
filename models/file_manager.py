@@ -495,7 +495,7 @@ class FileManager:
         self.refresh_albums()
         return slug
 
-    def edit_song(self, slug: Path, name: Optional[str], default_project: Optional[int]) -> Optional[Path]:
+    def edit_song(self, slug: Path, name: Optional[str], default_project: Optional[str]) -> Optional[Path]:
         """
         Edits a project.
         
@@ -553,22 +553,20 @@ class FileManager:
                         logger.warning(f"Unable to rename for {item}, unable to find REAPER file.")
         if default_project is not None:
             logger.debug("edit_song: default_project is valid")
-            projects = slug / "projects"
-            listedproj = sum(1 for _ in projects.iterdir())
-            if default_project > listedproj:
-               logger.error(f"{default_project} too high for total project count: {listedproj}") 
-               return None
-            elif default_project < 1:
-                logger.error(f"{default_project} must not be less than 1.")
+            projects_root = slug / "projects"
+            candidate = (slug / default_project).resolve()
+
+            try:
+                candidate.relative_to(projects_root.resolve()) # verify
+            except ValueError:
+                logger.error(f"{default_project} is not a valid project slug.")
                 return None
-            # now find it, it should be sorted
-            n = 1
-            for p in sorted(projects.iterdir()):
-                if n == default_project:
-                    default = p
-                    break
-                n += 1
-                
+
+            if not candidate.exists() or not candidate.is_dir():
+                logger.error(f"{default_project} is not a valid project slug.")
+                return None
+
+            default = candidate
         metadata = self.create_metadata("song", slug, default_project=default)
         logger.debug("ediu\t_song: made metadata")
         if metadata is not None:

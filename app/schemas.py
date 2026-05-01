@@ -39,7 +39,7 @@ class SongCreate(BaseModel):
 
 class SongUpdate(BaseModel):
     title: Optional[str] = None
-    default_project: Optional[int] = None
+    default_project: Optional[str] = None
 
 class AlbumCreate(BaseModel):
     title:str

@@ -42,7 +42,11 @@ def _find_project_file(project: Path) -> Path:
         if path.suffix:
             suffixes.append(path.suffix)
     
-    files = sorted(p for p in project.rglob("*") if p.is_file()) # recursive finding for folders
+    files = sorted(
+        p for p in project.rglob("*") 
+        if p.is_file()
+        and p.suffix in suffixes # ensure it has the ending
+    ) # recursive finding for folders
 
     for f in files:
         if f.stem == f.parent.name: # nested folder check
@@ -50,9 +54,14 @@ def _find_project_file(project: Path) -> Path:
 
     # non-nested, break away the YYYMMDD- from the beginning of the folder
     project_title = project.name.split("-", 1)[1] if "-" in project.name else project.name
+    title_candidates = {project_title}
+    base_title, sep, counter = project_title.rpartition("-") # properly seperate digit at end if needed
+    if sep and counter.isdigit(): # it is a counter
+        title_candidates.add(base_title) # get the right, flat name to check against
+    
 
     for f in files:
-        if f.stem == project_title:
+        if f.stem == title_candidates:
             return f
     
-    return project
+    return files[0] if files else project
