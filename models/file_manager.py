@@ -14,6 +14,8 @@ from zoneinfo import ZoneInfo
 
 from typing_extensions import Any, Dict, List
 
+from models.utils import find_project_file
+
 
 # logger (authored by ChatGPT 5.3)
 LOG_PATH = Path(__file__).resolve().parents[1] / "file_manager.log"
@@ -415,6 +417,9 @@ class FileManager:
             project_type = next(iter(templates))
 
         project_template: ProjectTemplate = templates.get(project_type)  # pyright: ignore[reportAssignmentType]
+        if project_template is None:
+            logger.error(f"No template configured for project type {project_type}.")
+            return None
         template = project_template.root
         if template is None:
             logger.error(f"No template configured for project type {project_type}.")
@@ -476,14 +481,14 @@ class FileManager:
                     continue
                 valid.append(item)
                     
-        for p in songs.iterdir():
-            if p.is_symlink() and p.name not in valid:
-                p.unlink()
-            
-        for item in valid:
-            dest = songs/item
-            if not dest.exists():
-                dest.symlink_to(self.droot / "songs"/ item)
+            for p in songs.iterdir():
+                if p.is_symlink() and p.name not in valid:
+                    p.unlink()
+                
+            for item in valid:
+                dest = songs/item
+                if not dest.exists():
+                    dest.symlink_to(self.droot / "songs"/ item)
                 
         metadata = self.create_metadata("album", slug)
         if metadata is not None:
@@ -533,24 +538,23 @@ class FileManager:
             # do da projects
             # projects *should* be labeled YYYYMMDD-project%d
             # if not, how fix?
-            logger.debug("edit_song: working on project naming now")
             projects = newslug / "projects"
-            for item in projects.iterdir():
-                if item.is_dir():
-                    #name *should* just be {title.RPP} (once again, temporary REAPER permanent)
-                    found = False
-                    for subitem in item.iterdir(): #is there a more efficient way of doing this?
-                        stem = subitem.stem
-                        parts = stem.split("-",1)
-                        if len(parts[0]) == 8 and parts[0].isdigit(): # starts with YYYYMMDD, beautiful
-                            new_name = f"{parts[0]}-{name}{subitem.suffix}"
-                        else:
-                            new_name = f"{name}{subitem.suffix}"
-                        subitem.rename(item / new_name)
-                        found = True
-                        break
-                    if found == False:
-                        logger.warning(f"Unable to rename for {item}, unable to find REAPER file.")
+            for project_dir in projects.iterdir():
+                if not project_dir.is_dir():
+                    continue
+                # found a dir!
+                project_file = find_project_file(project_dir) # search using helped
+                if not project_file.is_file(): # ensure it's an actual file
+                    logger.error(f"Project file not found in {project_dir}")
+                    continue
+
+                new_file = project_file.with_name(f"{name}{project_file.suffix}")
+                if new_file.exists():
+                    logger.warning(f"File already exists at {new_file}, skipping rename")
+                    continue
+                project_file.rename(new_file)
+                logger.debug(f"Renamed project file to {new_file}")
+                
         if default_project is not None:
             logger.debug("edit_song: default_project is valid")
             projects_root = slug / "projects"

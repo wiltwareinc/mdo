@@ -6,6 +6,7 @@ import subprocess
 from pathlib import Path
 from typing import Any
 
+from models.utils import find_project_file
 from textual.binding import Binding
 from textual.containers import Horizontal, Vertical, VerticalScroll
 from textual.content import Content
@@ -25,7 +26,8 @@ from tui.api_client import (
     get_songs,
 )
 from tui.list_screen_base import BaseListScreen
-from tui.utils import _find_project_file, _open_file
+from tui.utils import _open_file
+from models.utils import find_project_file
 
 
 class SongBox(Static):
@@ -114,7 +116,7 @@ class SongBox(Static):
         if event.button.id == "open_project":
             default = self.song["default_project"]
             project = sroot / default if default is not None else sroot
-            project = _find_project_file(project)
+            project = find_project_file(project)
             if project:
                 self.notify(f"open {project}")
                 _open_file(project)
@@ -328,7 +330,7 @@ class OpenProjectScreen(ModalScreen):
 
         music_root = get_config().root
         sroot = music_root / "songs" / self.song["slug"]
-        project = _find_project_file(sroot / value)
+        project = find_project_file(sroot / value)
 
         self.notify(f"open {project}")
         _open_file(project)
@@ -404,7 +406,7 @@ class CreateAssetScreen(ModalScreen):
                         projects = updated.get("projects", [])
                         project = projects[-1]["path"] if projects else None
                         if project:
-                            _open_file(_find_project_file(sroot / project))
+                            _open_file(find_project_file(sroot / project))
                     
                 except RuntimeError as exc:
                     self.notify(str(exc))

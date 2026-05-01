@@ -68,11 +68,6 @@ def get_config() -> MdoConfig:
                 if path is not None:
                     templates[name] = ProjectTemplate(root=path, folder=folder)
 
-    # temp?
-    reaper_override = expand_optional_path(os.getenv("MDO_REAPER_TEMPLATE"))
-    if reaper_override is not None:
-        templates["Reaper"] = reaper_override
-
     return MdoConfig(
         root=music_root,
         templates=templates,
