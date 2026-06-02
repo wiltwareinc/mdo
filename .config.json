@@ -1,5 +1,5 @@
 {
-  "root": "~/Projects/code/mdo/music",
+  "root": "~/Projects/music",
   "templates": {
     "Reaper": {
       "path": "~/Media/Templates/default.RPP",

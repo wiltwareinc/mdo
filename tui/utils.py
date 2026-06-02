@@ -1,6 +1,7 @@
 # wiltware 2026
 # utils
 import os
+import shlex
 import subprocess
 import sys
 from pathlib import Path
@@ -26,3 +27,8 @@ def _open_file(file: Path) -> None:
                 stderr=log,
                 text=True,
             )
+
+def _edit_file_in_terminal(file: Path) -> None:
+    editor = os.getenv("VISUAL") or os.getenv("EDITOR") or "nano"
+    cmd = [*shlex.split(editor), str(file)]
+    subprocess.run(cmd)

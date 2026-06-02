@@ -6,7 +6,6 @@ import subprocess
 from pathlib import Path
 from typing import Any
 
-from models.utils import find_project_file
 from textual.binding import Binding
 from textual.containers import Horizontal, Vertical, VerticalScroll
 from textual.content import Content
@@ -26,7 +25,7 @@ from tui.api_client import (
     get_songs,
 )
 from tui.list_screen_base import BaseListScreen
-from tui.utils import _open_file
+from tui.utils import _open_file, _edit_file_in_terminal
 from models.utils import find_project_file
 
 
@@ -132,7 +131,11 @@ class SongBox(Static):
             lyric = lyrics[-1]["path"] if lyrics else None
             if lyric:
                 self.notify(f"open lyrics {sroot / lyric}")
-                _open_file(sroot / lyric)
+                if os.getenv("SSH_CONNECTION") or os.getenv("SSH_TTY"):
+                    with self.app.suspend():
+                        _edit_file_in_terminal(sroot / lyric)
+                else:
+                    _open_file(sroot / lyric)
             else:
                 self.notify("No lyrics found!")
 
