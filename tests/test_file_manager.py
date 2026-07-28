@@ -61,12 +61,54 @@ def test_create_edit_album(fm: FileManager) -> None:
     assert_true(renamed.exists(), "renamed album folder should exist")
 
 
+def test_rename_song_updates_album_references(fm: FileManager) -> None:
+    song = fm.create_song("linked-song", [])
+    assert_true(song is not None, "create_song should return a path")
+    old_slug = song.name
+
+    album = fm.create_album("linked-album", [old_slug])
+    assert_true(album is not None, "create_album should return a path")
+
+    renamed = fm.edit_song(song, "renamed-linked-song", None)
+    assert_true(renamed is not None, "edit_song should return a path")
+    new_slug = renamed.name
+
+    old_link = album / "songs" / old_slug
+    new_link = album / "songs" / new_slug
+
+    assert_true(
+        not old_link.is_symlink(),
+        "album should no longer contain a symlink with the old song slug",
+    )
+    assert_true(
+        new_link.is_symlink(),
+        "album should contain a symlink with the renamed song slug",
+    )
+    assert_true(
+        new_link.resolve() == renamed.resolve(),
+        "renamed album symlink should point to the renamed song",
+    )
+
+    fm.refresh_albums()
+    album_data = next(item for item in fm.albums if item["slug"] == album.name)
+    track_slugs = [track["slug"] for track in album_data["tracklist"]]
+    assert_true(
+        old_slug not in track_slugs,
+        "album metadata should not retain the old song slug",
+    )
+    assert_true(
+        new_slug in track_slugs,
+        "album metadata should contain the renamed song slug",
+    )
+
+
 def main() -> None:
     temp_music = make_temp_music()
     try:
         fm = FileManager(temp_music)
         test_create_edit_song(fm)
         test_create_edit_album(fm)
+        test_rename_song_updates_album_references(fm)
         print("file_manager tests: OK")
     finally:
         shutil.rmtree(temp_music.parent)

@@ -447,6 +447,53 @@ class FileManager:
         return dest
 
     # EDITING/RENAMING
+    def _rename_song_in_albums(self, old_slug: str, new_slug: str) -> None:
+        """
+        Helper method to recursively rename song references in albums.
+
+        Args:
+            old_slug: Old slug name
+            new_slug: New slug name to rename to
+        """
+        albums_root = self.droot / "albums"
+        renamed_song = self.droot / "songs" / new_slug
+
+        for album_root in albums_root.iterdir():
+            # go through every album
+            # yes this is inefficient but this doesn't need to be lightning fast
+            if not album_root.is_dir():
+                continue
+
+            songs_root = album_root / "songs"
+            old_link = songs_root / old_slug
+
+            # broken symlink returns False so use is_symlink
+            if not old_link.is_symlink():
+                continue
+
+            new_link = songs_root / new_slug
+            if new_link.exists() or new_link.is_symlink():
+                raise FileExistsError(
+                    f"Cannot update album {album_root.name}: {new_link} already exists."
+                )
+
+            new_link.symlink_to(renamed_song)
+            old_link.unlink()
+
+            metadata_path = album_root / ".metadata.json"
+            # hot swap metadata?
+            with open(metadata_path, "r") as file:
+                metadata = json.load(file)
+
+            for track in metadata.get("tracklist", []):
+                if track.get("slug") == old_slug:
+                    track["slug"] = new_slug
+
+            with open(metadata_path, "w") as file:
+                json.dump(metadata, file, indent=2)
+
+        self.refresh_albums() # is this needed?
+    
     def edit_album(self, slug: Path, name: Optional[str], tracklist: Optional[list[str]]) -> Optional[Path]:
         """
         Edits an album.
@@ -525,8 +572,10 @@ class FileManager:
             if newslug.exists():
                 logger.warning(f"{newslug} already exists, not overwriting.")
                 return None
+            old_slug = slug.name
             slug.rename(newslug)
             slug = newslug
+            self._rename_song_in_albums(old_slug, slug.name)
             # do da lyrics
             lyrics = newslug / "lyrics"
             for item in lyrics.iterdir():
