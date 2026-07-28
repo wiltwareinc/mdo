@@ -102,6 +102,42 @@ def test_rename_song_updates_album_references(fm: FileManager) -> None:
     )
 
 
+def test_metadata_rebuild_preserves_default_project(fm: FileManager) -> None:
+    song = fm.create_song("default-project-song", [])
+    assert_true(song is not None, "create_song should return a path")
+
+    first_project = song / "projects" / "20260101-first-project"
+    second_project = song / "projects" / "20260102-second-project"
+    first_project.mkdir()
+    second_project.mkdir()
+
+    first_project_ref = str(first_project.relative_to(song))
+    selected = fm.edit_song(song, None, first_project_ref)
+    assert_true(selected is not None, "selecting a default project should succeed")
+
+    rebuilt_metadata = fm.create_metadata("song", song)
+    assert_true(
+        rebuilt_metadata is not None,
+        "rebuilding song metadata should return metadata",
+    )
+    assert_true(
+        rebuilt_metadata["default_project"] == first_project_ref,
+        "a metadata rebuild should preserve the selected default project",
+    )
+
+    lyric = fm.create_lyrics(song, "default-project-song")
+    assert_true(lyric is not None, "creating lyrics should succeed")
+    updated = fm.edit_song(song, None, None)
+    assert_true(updated is not None, "refreshing song metadata should succeed")
+
+    fm.refresh_songs()
+    song_data = next(item for item in fm.songs if item["slug"] == song.name)
+    assert_true(
+        song_data["default_project"] == first_project_ref,
+        "adding lyrics should not change the selected default project",
+    )
+
+
 def main() -> None:
     temp_music = make_temp_music()
     try:
@@ -109,6 +145,7 @@ def main() -> None:
         test_create_edit_song(fm)
         test_create_edit_album(fm)
         test_rename_song_updates_album_references(fm)
+        test_metadata_rebuild_preserves_default_project(fm)
         print("file_manager tests: OK")
     finally:
         shutil.rmtree(temp_music.parent)
