@@ -1,0 +1,23 @@
+{
+  "schema_version": 2,
+  "id": "song_2f8c2a4e-8bd2-4d57-a1c7-7e4cbfd52a91",
+  "title": "Beautiful Tune",
+  "description": "I made this song. It is yummy.",
+  "tags": [
+    "solo",
+    "electronic"
+  ],
+  "assets": [
+    {
+      "id": "asset_6dc2d57b-0ce2-44cf-8b1b-991e419f813c",
+      "kind": "project",
+      "purpose": "song_session",
+      "title": "Main Reaper Session",
+      "description": "Primary working session.",
+      "path": "projects/main-session"
+    }
+  ],
+  "default_project_id": "asset_6dc2d57b-0ce2-44cf-8b1b-991e419f813c",
+  "created_at": "2026-05-01T00:00:00-04:00",
+  "updated_at": "2026-05-01T15:42:00-04:00"
+}
