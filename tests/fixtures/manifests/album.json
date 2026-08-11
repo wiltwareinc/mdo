@@ -11,13 +11,13 @@
       "title": "Main Album",
       "entries": [
         {
-          "id": "track_61236835-49b6-487a-a803-221fa2bc31db",
+          "id": "entry_61236835-49b6-487a-a803-221fa2bc31db",
           "song_id": "song_2f8c2a4e-8bd2-4d57-a1c7-7e4cbfd52a91",
           "title_override": null,
           "notes": ""
         },
         {
-          "id": "track_aa1b2397-88b8-4384-9cbe-617792dc0d77",
+          "id": "entry_aa1b2397-88b8-4384-9cbe-617792dc0d77",
           "song_id": "song_225aa914-22bd-4e35-b12d-66b145a090b2",
           "title_override": "Cooler Album Version",
           "notes": "Replace this with the mastered mix later."
@@ -32,7 +32,7 @@
       "description": "Songs that might be used for a deluxe version.",
       "entries": [
         {
-          "id": "collection_entry_83845e80-31d7-44d5-9cca-65c822ad218c",
+          "id": "entry_83845e80-31d7-44d5-9cca-65c822ad218c",
           "song_id": "song_941a5060-7e46-421c-953b-b85cf7ed65e8",
           "notes": "Needs another vocal take."
         }

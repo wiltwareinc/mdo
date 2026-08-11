@@ -1,88 +1,65 @@
-# This test was written by ChatGPT Codex 5 on 2026-02-19
-from __future__ import annotations
+"""Test the legacy FastAPI song and album CRUD endpoints.
 
-import os
-import shutil
-import sys
-import tempfile
-from pathlib import Path
+Each test uses FastAPI's in-process TestClient and a temporary library, so no
+server, network connection, or real music collection is required.
+
+Authored by OpenAI Codex on 2026-08-07.
+"""
+
+from __future__ import annotations
 
 from fastapi.testclient import TestClient
 
-ROOT = Path(__file__).resolve().parents[1]
-sys.path.insert(0, str(ROOT))
 
-from app.deps import get_file_manager
-from app.main import app
+def test_song_list_starts_empty(api_client: TestClient) -> None:
+    response = api_client.get("/songs")
 
-
-def assert_true(condition: bool, message: str) -> None:
-    if not condition:
-        raise AssertionError(message)
+    assert response.status_code == 200
+    assert response.json() == []
 
 
-def make_temp_music() -> Path:
-    temp_root = ROOT / "extra" / "tmp-test"
-    temp_root.mkdir(parents=True, exist_ok=True)
-    temp_dir = Path(tempfile.mkdtemp(prefix="mdo-api-", dir=temp_root))
-    temp_music = temp_dir / "music"
-    temp_music.mkdir()
-    (temp_music / "songs").mkdir()
-    (temp_music / "albums").mkdir()
-    return temp_music
+def test_create_get_and_update_song(api_client: TestClient) -> None:
+    created_response = api_client.post(
+        "/songs",
+        json={"title": "api-test-song", "args": []},
+    )
+    assert created_response.status_code == 201
+    created = created_response.json()
+    original_slug = created["slug"]
+
+    get_response = api_client.get(f"/songs/{original_slug}")
+    assert get_response.status_code == 200
+    assert get_response.json()["slug"] == original_slug
+
+    update_response = api_client.patch(
+        f"/songs/{original_slug}",
+        json={"title": "api-test-song-renamed"},
+    )
+    assert update_response.status_code == 200
+    assert update_response.json()["slug"] != original_slug
+    assert update_response.json()["title"] == "api-test-song-renamed"
 
 
-def main() -> None:
-    temp_music = make_temp_music()
-    try:
-        os.environ["MDO_ROOT"] = str(temp_music)
-        get_file_manager.cache_clear()
-        client = TestClient(app)
+def test_create_and_get_album(api_client: TestClient) -> None:
+    song_response = api_client.post(
+        "/songs",
+        json={"title": "album-track", "args": []},
+    )
+    song_slug = song_response.json()["slug"]
 
-        resp = client.get("/songs")
-        print("GET /songs ->", resp.status_code, resp.json())
-        assert_true(resp.status_code == 200, f"GET /songs failed: {resp.text}")
-        assert_true(isinstance(resp.json(), list), "GET /songs should return a list")
+    created_response = api_client.post(
+        "/albums",
+        json={"title": "api-test-album", "tracklist": [song_slug]},
+    )
+    assert created_response.status_code == 201
+    created = created_response.json()
+    assert [track["slug"] for track in created["tracklist"]] == [song_slug]
 
-        create_payload = {"title": "api-test-song", "args": []}
-        print("POST /songs payload ->", create_payload)
-        resp = client.post("/songs", json=create_payload)
-        print("POST /songs ->", resp.status_code, resp.json())
-        assert_true(resp.status_code == 201, f"POST /songs failed: {resp.text}")
-        song = resp.json()
-        slug = song.get("slug")
-        assert_true(slug, "POST /songs should return a slug")
-
-        resp = client.get(f"/songs/{slug}")
-        print(f"GET /songs/{slug} ->", resp.status_code, resp.json())
-        assert_true(resp.status_code == 200, f"GET /songs/{{slug}} failed: {resp.text}")
-
-        patch_payload = {"name": "api-test-song-renamed"}
-        print(f"PATCH /songs/{slug} payload ->", patch_payload)
-        resp = client.patch(f"/songs/{slug}", json=patch_payload)
-        print(f"PATCH /songs/{slug} ->", resp.status_code, resp.json())
-        assert_true(resp.status_code == 200, f"PATCH /songs/{{slug}} failed: {resp.text}")
-        updated_song = resp.json()
-        updated_slug = updated_song.get("slug")
-        assert_true(updated_slug and updated_slug != slug, "PATCH /songs should rename slug")
-
-        album_payload = {"title": "api-test-album", "tracklist": [updated_slug]}
-        print("POST /albums payload ->", album_payload)
-        resp = client.post("/albums", json=album_payload)
-        print("POST /albums ->", resp.status_code, resp.json())
-        assert_true(resp.status_code == 201, f"POST /albums failed: {resp.text}")
-        album = resp.json()
-        album_slug = album.get("slug")
-        assert_true(album_slug, "POST /albums should return a slug")
-
-        resp = client.get(f"/albums/{album_slug}")
-        print(f"GET /albums/{album_slug} ->", resp.status_code, resp.json())
-        assert_true(resp.status_code == 200, f"GET /albums/{{slug}} failed: {resp.text}")
-
-        print("api tests: OK")
-    finally:
-        shutil.rmtree(temp_music.parent)
+    get_response = api_client.get(f"/albums/{created['slug']}")
+    assert get_response.status_code == 200
+    assert get_response.json()["slug"] == created["slug"]
 
 
-if __name__ == "__main__":
-    main()
+def test_missing_song_and_album_return_not_found(api_client: TestClient) -> None:
+    assert api_client.get("/songs/not-a-song").status_code == 404
+    assert api_client.get("/albums/not-an-album").status_code == 404

@@ -1,99 +1,71 @@
-# This test was written by ChatGPT Codex 5 on 2026-02-19
+"""Test watcher path normalization, debouncing, and event filtering.
+
+These are unit tests for watcher decisions only; they do not start operating
+system observers or wait for real filesystem notifications.
+
+Authored by OpenAI Codex on 2026-08-07.
+"""
+
 from __future__ import annotations
 
-import shutil
-import sys
-import tempfile
-import time
 from pathlib import Path
 
-from watchdog.events import FileSystemEvent
-
-ROOT = Path(__file__).resolve().parents[1]
-sys.path.insert(0, str(ROOT))
+from watchdog.events import FileCreatedEvent, FileModifiedEvent
 
 from models.watcher import Debouncer, MdoEventHandler, normalize_event_path
 
 
-def assert_true(condition: bool, message: str) -> None:
-    if not condition:
-        raise AssertionError(message)
+def test_normalize_event_path_identifies_song_and_album(music_root: Path) -> None:
+    song_path = music_root / "songs" / "song-one" / "lyrics" / "a.txt"
+    album_path = music_root / "albums" / "album-one" / "songs" / "song-one"
 
-
-def make_temp_root() -> Path:
-    temp_root = ROOT / "extra" / "tmp-test"
-    temp_root.mkdir(parents=True, exist_ok=True)
-    temp_dir = Path(tempfile.mkdtemp(prefix="mdo-watcher-", dir=temp_root))
-    root = temp_dir / "music"
-    (root / "songs").mkdir(parents=True)
-    (root / "albums").mkdir(parents=True)
-    return root
-
-
-def test_normalize_event_path(root: Path) -> None:
-    song_slug = root / "songs" / "20260219-test-song"
-    song_file = song_slug / "lyrics" / "a.txt"
-    song_file.parent.mkdir(parents=True)
-    song_file.touch()
-
-    album_slug = root / "albums" / "20260219-test-album"
-    album_file = album_slug / "songs" / "20260219-test-song"
-    album_file.parent.mkdir(parents=True)
-    album_file.touch()
-
-    song_out = normalize_event_path(root, song_file)
-    assert_true(song_out == ("song", song_slug), "song path should normalize to song slug")
-
-    album_out = normalize_event_path(root, album_file)
-    assert_true(
-        album_out == ("album", album_slug),
-        "album path should normalize to album slug",
+    assert normalize_event_path(music_root, song_path) == (
+        "song",
+        music_root / "songs" / "song-one",
+    )
+    assert normalize_event_path(music_root, album_path) == (
+        "album",
+        music_root / "albums" / "album-one",
     )
 
 
-def test_debouncer(root: Path) -> None:
+def test_normalize_event_path_rejects_outside_path(
+    music_root: Path,
+    tmp_path: Path,
+) -> None:
+    assert normalize_event_path(music_root, tmp_path / "outside.txt") is None
+
+
+def test_debouncer_flushes_ready_item(music_root: Path) -> None:
     results: list[tuple[str, Path]] = []
-
-    def _callback(kind: str, path: Path) -> None:
-        results.append((kind, path))
-
+    path = music_root / "songs" / "song-one"
     debouncer = Debouncer(window_s=0.0)
-    path = root / "songs" / "20260219-test-song"
+
     debouncer.push("song", path)
-    debouncer.flush(_callback)
-    assert_true(results == [("song", path)], "debouncer should flush queued items")
+    debouncer.flush(lambda kind, changed_path: results.append((kind, changed_path)))
+
+    assert results == [("song", path)]
+    assert debouncer.pending == {}
 
 
-def test_event_handler(root: Path) -> None:
+def test_event_handler_queues_created_song_event(music_root: Path) -> None:
     results: list[tuple[str, Path]] = []
-
-    def _callback(kind: str, path: Path) -> None:
-        results.append((kind, path))
-
     debouncer = Debouncer(window_s=0.0)
-    handler = MdoEventHandler(root, _callback, debouncer)
-    song_path = root / "songs" / "20260219-test-song" / "lyrics" / "a.txt"
-    song_path.parent.mkdir(parents=True, exist_ok=True)
-    song_path.touch()
+    handler = MdoEventHandler(music_root, lambda *_: None, debouncer)
+    song_file = music_root / "songs" / "song-one" / "lyrics" / "a.txt"
 
-    handler.on_any_event(FileSystemEvent(str(song_path)))
-    debouncer.flush(_callback)
-    assert_true(
-        results == [("song", root / "songs" / "20260219-test-song")],
-        "event handler should push normalized song slug",
-    )
+    handler.on_any_event(FileCreatedEvent(str(song_file)))
+    debouncer.flush(lambda kind, changed_path: results.append((kind, changed_path)))
+
+    assert results == [("song", music_root / "songs" / "song-one")]
 
 
-def main() -> None:
-    root = make_temp_root()
-    try:
-        test_normalize_event_path(root)
-        test_debouncer(root)
-        test_event_handler(root)
-        print("watcher tests: OK")
-    finally:
-        shutil.rmtree(root.parent)
+def test_event_handler_ignores_modified_and_metadata_events(music_root: Path) -> None:
+    debouncer = Debouncer(window_s=0.0)
+    handler = MdoEventHandler(music_root, lambda *_: None, debouncer)
+    song_root = music_root / "songs" / "song-one"
 
+    handler.on_any_event(FileModifiedEvent(str(song_root / "lyrics" / "a.txt")))
+    handler.on_any_event(FileCreatedEvent(str(song_root / ".metadata.json")))
 
-if __name__ == "__main__":
-    main()
+    assert debouncer.pending == {}

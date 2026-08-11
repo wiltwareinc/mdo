@@ -24,7 +24,7 @@ There are a few different ways:
 - **Full application:** MDO_ROOT=<path/to/project/root> PYTHONPATH=. python -m tui-bare_tui
 - **API:** PYTHONPATH=. MDO_ROOT=./music python -m uvicorn app.main:app --reload
   - note: this runs at localhost:800
-- **Tests:** python test/<test>
+- **Tests:** install `requirements-dev.txt`, then run `.mdo/bin/python -m pytest`
 
 ## Is there any AI Used?
 All AI generated code is made by ChatGPT 5.3 Codex. Mostly it is the tests, with minimal contributions to the codebase.
