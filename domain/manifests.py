@@ -5,8 +5,32 @@ from datetime import datetime
 from enum import StrEnum
 from typing import Literal
 
-from pydantic import BaseModel, Field, model_validator
+from pydantic import BaseModel, Field, field_validator, model_validator
 from pydantic.config import ConfigDict
+
+from uuid import UUID
+
+def validate_prefixed_uuid(value: str, prefix: str) -> str:
+    """helper function to verify a uuid with a prefix"""
+    expected_prefix = f"{prefix}_"
+
+    if not value.startswith(expected_prefix):
+        raise ValueError(f"expected {prefix} UUID, got {value}")
+
+    uuid_text = value.removeprefix(expected_prefix)
+
+    try:
+        parsed = UUID(uuid_text)
+    except ValueError as error:
+        raise ValueError("ID must contain a valid UUID") from error
+
+    if parsed.version != 4:
+        raise ValueError("ID must contain a UUIDv4")
+
+    if str(parsed) != uuid_text:
+        raise ValueError("UUID must use a canonical lowercase formatting")
+    
+    return value
 
 
 class DomainModel(BaseModel):
@@ -33,6 +57,10 @@ class Asset(DomainModel):
     title: str
     description: str | None = None
     path: str # or Path?
+
+    @field_validator("id")
+    def validate_id(cls, value: str) -> str:
+        return validate_prefixed_uuid(value, "asset")
 
 class SongManifest(DomainModel):
     schema_version: Literal[2]
@@ -71,11 +99,23 @@ class SongManifest(DomainModel):
 
         return self
 
+    @field_validator("id")
+    def validate_id(cls, value: str) -> str:
+        return validate_prefixed_uuid(value, "song")
+
 class Entry(DomainModel):
     id: str
     song_id: str
     title_override: str | None = None
     notes: str = ""
+
+    @field_validator("id")
+    def validate_id(cls, value: str) -> str:
+        return validate_prefixed_uuid(value, "entry")
+
+    @field_validator("song_id")
+    def validate_song_id(cls, value: str) -> str:
+        return validate_prefixed_uuid(value, "song")
 
 class Group(DomainModel):
     id: str
@@ -86,8 +126,16 @@ class Group(DomainModel):
 class Sequence(Group):
     """order is preserved"""
 
+    @field_validator("id")
+    def validate_id(cls, value: str) -> str:
+        return validate_prefixed_uuid(value, "sequence")
+
 class Collection(Group):
     """order is unnecessary"""
+
+    @field_validator("id")
+    def validate_id(cls, value: str) -> str:
+        return validate_prefixed_uuid(value, "collection")
 
 class AlbumManifest(DomainModel):
     schema_version: Literal[2]
@@ -112,3 +160,7 @@ class AlbumManifest(DomainModel):
 
     created_at: datetime
     updated_at: datetime
+
+    @field_validator("id")
+    def validate_id(cls, value: str) -> str:
+        return validate_prefixed_uuid(value, "album")

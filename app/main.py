@@ -1,6 +1,7 @@
 # wiltware 2026
 # entry point for FastAPI
 # logging stuff from ChatGPT
+from app.api_v2 import router as api_v2_router
 from pathlib import Path
 import logging
 import logging.config
@@ -40,3 +41,4 @@ app.add_middleware(
 )
 
 app.include_router(api_router)
+app.include_router(api_v2_router)

@@ -1,9 +1,9 @@
 """Validate the portable version-2 song and album manifest contracts.
 
-These tests cover successful fixture parsing, strict schema handling, asset
-purpose validation, and internal default-project/primary-sequence references.
+These tests cover successful fixture parsing, strict schema handling, every
+prefixed UUID field, asset purposes, and internal manifest references.
 
-Authored by OpenAI Codex on 2026-08-07.
+Authored by OpenAI Codex on 2026-08-07; ID coverage expanded on 2026-08-11.
 """
 
 from __future__ import annotations
@@ -13,7 +13,24 @@ from collections.abc import Callable
 import pytest
 from pydantic import ValidationError
 
-from domain.manifests import AlbumManifest, SongManifest
+from domain.manifests import (
+    AlbumManifest,
+    Asset,
+    Collection,
+    Entry,
+    Sequence,
+    SongManifest,
+    validate_prefixed_uuid,
+)
+
+
+UUID4 = "2f8c2a4e-8bd2-4d57-a1c7-7e4cbfd52a91"
+UUID1 = "6ba7b810-9dad-11d1-80b4-00c04fd430c8"
+
+
+def _error_locations(error: ValidationError) -> set[tuple[str | int, ...]]:
+    """Return Pydantic error locations for precise field-level assertions."""
+    return {tuple(item["loc"]) for item in error.errors()}
 
 
 def test_song_fixture_is_valid(load_manifest: Callable[[str], dict]) -> None:
@@ -60,6 +77,180 @@ def test_manifest_requires_schema_version_two(
 
     with pytest.raises(ValidationError):
         model.model_validate(data)
+
+
+@pytest.mark.parametrize(
+    "prefix",
+    ["song", "album", "asset", "entry", "sequence", "collection"],
+)
+def test_prefixed_uuid_helper_accepts_canonical_uuid4(prefix: str) -> None:
+    value = f"{prefix}_{UUID4}"
+
+    assert validate_prefixed_uuid(value, prefix) == value
+
+
+@pytest.mark.parametrize(
+    ("value", "prefix", "message"),
+    [
+        (f"album_{UUID4}", "song", "expected song UUID"),
+        ("song_not-a-uuid", "song", "valid UUID"),
+        (f"song_{UUID1}", "song", "UUIDv4"),
+        (f"song_{UUID4.upper()}", "song", "canonical lowercase"),
+    ],
+)
+def test_prefixed_uuid_helper_rejects_invalid_values(
+    value: str,
+    prefix: str,
+    message: str,
+) -> None:
+    with pytest.raises(ValueError, match=message):
+        validate_prefixed_uuid(value, prefix)
+
+
+@pytest.mark.parametrize(
+    ("model", "data"),
+    [
+        (
+            Asset,
+            {
+                "id": f"asset_{UUID4}",
+                "kind": "project",
+                "purpose": "song_session",
+                "title": "Session",
+                "path": "projects/session",
+            },
+        ),
+        (
+            Entry,
+            {
+                "id": f"entry_{UUID4}",
+                "song_id": f"song_{UUID4}",
+            },
+        ),
+        (
+            Sequence,
+            {
+                "id": f"sequence_{UUID4}",
+                "title": "Main sequence",
+                "entries": [],
+            },
+        ),
+        (
+            Collection,
+            {
+                "id": f"collection_{UUID4}",
+                "title": "Bonus material",
+                "entries": [],
+            },
+        ),
+    ],
+)
+def test_nested_models_accept_correct_id_prefixes(
+    model: type[Asset] | type[Entry] | type[Sequence] | type[Collection],
+    data: dict,
+) -> None:
+    assert model.model_validate(data).id == data["id"]
+
+
+@pytest.mark.parametrize(
+    ("model", "data"),
+    [
+        (
+            Asset,
+            {
+                "id": f"song_{UUID4}",
+                "kind": "project",
+                "purpose": "song_session",
+                "title": "Session",
+                "path": "projects/session",
+            },
+        ),
+        (
+            Entry,
+            {
+                "id": f"song_{UUID4}",
+                "song_id": f"song_{UUID4}",
+            },
+        ),
+        (
+            Sequence,
+            {
+                "id": f"collection_{UUID4}",
+                "title": "Main sequence",
+                "entries": [],
+            },
+        ),
+        (
+            Collection,
+            {
+                "id": f"sequence_{UUID4}",
+                "title": "Bonus material",
+                "entries": [],
+            },
+        ),
+    ],
+)
+def test_nested_models_reject_wrong_id_prefixes_on_id_field(
+    model: type[Asset] | type[Entry] | type[Sequence] | type[Collection],
+    data: dict,
+) -> None:
+    with pytest.raises(ValidationError) as error:
+        model.model_validate(data)
+
+    assert ("id",) in _error_locations(error.value)
+
+
+def test_entry_accepts_song_prefixed_song_reference() -> None:
+    entry = Entry.model_validate(
+        {
+            "id": f"entry_{UUID4}",
+            "song_id": f"song_{UUID4}",
+        }
+    )
+
+    assert entry.song_id == f"song_{UUID4}"
+
+
+def test_entry_rejects_non_song_prefix_on_song_reference() -> None:
+    with pytest.raises(ValidationError) as error:
+        Entry.model_validate(
+            {
+                "id": f"entry_{UUID4}",
+                "song_id": f"entry_{UUID4}",
+            }
+        )
+
+    assert ("song_id",) in _error_locations(error.value)
+
+
+@pytest.mark.parametrize(
+    "invalid_id",
+    [
+        "album_2f8c2a4e-8bd2-4d57-a1c7-7e4cbfd52a91",
+        "song_not-a-uuid",
+    ],
+)
+def test_song_rejects_invalid_id(
+    invalid_id: str,
+    load_manifest: Callable[[str], dict],
+) -> None:
+    data = load_manifest("song.json")
+    data["id"] = invalid_id
+
+    with pytest.raises(ValidationError):
+        SongManifest.model_validate(data)
+
+
+def test_album_rejects_wrong_id_prefix(
+    load_manifest: Callable[[str], dict],
+) -> None:
+    data = load_manifest("album.json")
+    data["id"] = f"song_{UUID4}"
+
+    with pytest.raises(ValidationError) as error:
+        AlbumManifest.model_validate(data)
+
+    assert ("id",) in _error_locations(error.value)
 
 
 def test_song_rejects_missing_default_project_reference(
