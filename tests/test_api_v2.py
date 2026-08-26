@@ -14,7 +14,7 @@ from pathlib import Path
 from fastapi.testclient import TestClient
 
 from domain.manifests import SongManifest
-from persistence.manifests import load_song_manifest
+from persistence.manifests import load_album_manifest, load_song_manifest
 
 
 def test_v2_song_list_starts_empty(api_client: TestClient) -> None:
@@ -71,3 +71,66 @@ def test_v2_duplicate_song_returns_conflict(api_client: TestClient) -> None:
 
     assert duplicate_response.status_code == 409
     assert "Song already exists" in duplicate_response.json()["detail"]
+
+
+def test_v2_album_list_starts_empty(api_client: TestClient) -> None:
+    response = api_client.get("/v2/albums")
+
+    assert response.status_code == 200
+    assert response.json() == []
+
+
+def test_v2_create_album_preserves_song_order_and_writes_metadata(
+    api_client: TestClient,
+    music_root: Path,
+) -> None:
+    first_song = api_client.post("/v2/songs", json={"title": "First Song"}).json()
+    second_song = api_client.post("/v2/songs", json={"title": "Second Song"}).json()
+    song_ids = [first_song["id"], second_song["id"]]
+
+    response = api_client.post(
+        "/v2/albums",
+        json={"title": "Connected Album", "song_ids": song_ids},
+    )
+
+    assert response.status_code == 201
+    body = response.json()
+    assert body["title"] == "Connected Album"
+    assert body["primary_sequence_id"] == body["sequences"][0]["id"]
+    assert [entry["song_id"] for entry in body["sequences"][0]["entries"]] == song_ids
+
+    album_directories = list((music_root / "albums").iterdir())
+    assert len(album_directories) == 1
+    assert load_album_manifest(album_directories[0]).id == body["id"]
+
+
+def test_v2_album_id_is_stable_across_requests(api_client: TestClient) -> None:
+    create_response = api_client.post(
+        "/v2/albums",
+        json={"title": "Persistent Album", "song_ids": []},
+    )
+    assert create_response.status_code == 201
+    created = create_response.json()
+
+    list_response = api_client.get("/v2/albums")
+
+    assert list_response.status_code == 200
+    assert len(list_response.json()) == 1
+    assert list_response.json()[0]["id"] == created["id"]
+    assert list_response.json()[0]["title"] == "Persistent Album"
+
+
+def test_v2_duplicate_album_returns_conflict(api_client: TestClient) -> None:
+    first_response = api_client.post(
+        "/v2/albums",
+        json={"title": "Duplicate Album", "song_ids": []},
+    )
+    assert first_response.status_code == 201
+
+    duplicate_response = api_client.post(
+        "/v2/albums",
+        json={"title": "Duplicate Album", "song_ids": []},
+    )
+
+    assert duplicate_response.status_code == 409
+    assert "Album already exists" in duplicate_response.json()["detail"]

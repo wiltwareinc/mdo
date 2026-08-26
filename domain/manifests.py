@@ -106,6 +106,7 @@ class SongManifest(DomainModel):
 class Entry(DomainModel):
     id: str
     song_id: str
+    album_asset_id: str | None = None
     title_override: str | None = None
     notes: str = ""
 
@@ -116,6 +117,14 @@ class Entry(DomainModel):
     @field_validator("song_id")
     def validate_song_id(cls, value: str) -> str:
         return validate_prefixed_uuid(value, "song")
+
+    @field_validator("album_asset_id")
+    def validate_album_asset_id(cls, value: str | None) -> str | None:
+        # TODO
+        if value is not None:
+            return validate_prefixed_uuid(value, "asset")
+        return None
+
 
 class Group(DomainModel):
     id: str
@@ -153,6 +162,32 @@ class AlbumManifest(DomainModel):
             raise ValueError("primary_sequence_id must reference a sequence in this manifest")
         return self
 
+    @model_validator(mode='after')
+    def validate_album_asset_references(self):
+        assets_by_id = {
+            asset.id : asset
+            for asset in self.assets
+        }
+
+        groups = [*self.sequences, *self.collections]
+
+        for group in groups:
+            for entry in group.entries:
+                if entry.album_asset_id is None:
+                    continue
+
+                asset = assets_by_id.get(entry.album_asset_id)
+
+                if asset is None:
+                    raise ValueError("album_asset_id must reference an asset in this album")
+
+                if asset.kind != AssetKind.PROJECT:
+                    raise ValueError("album_asset_id must reference a project asset")
+
+                if asset.purpose != AssetPurpose.ALBUM_SESSION:
+                    raise ValueError("album_asset_id must reference an album session")
+        return self
+    
     sequences: list[Sequence] = Field(default_factory=list)
     collections: list[Collection] = Field(default_factory=list) #?
     

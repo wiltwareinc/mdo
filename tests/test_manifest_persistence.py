@@ -17,19 +17,37 @@ from uuid import UUID
 import pytest
 from pydantic import ValidationError
 
+from domain.manifests import AlbumManifest
 from persistence import manifests as manifest_io
 from persistence.manifests import (
     METADATA_FILENAME,
+    create_album_manifest,
     create_song_manifest,
+    load_album_manifest,
     load_song_manifest,
+    write_album_manifest,
     write_song_manifest,
 )
+
+
+SONG_IDS = [
+    "song_2f8c2a4e-8bd2-4d57-a1c7-7e4cbfd52a91",
+    "song_225aa914-22bd-4e35-b12d-66b145a090b2",
+]
 
 
 @pytest.fixture
 def song_root(tmp_path: Path) -> Path:
     """Create an otherwise empty song directory for persistence tests."""
     path = tmp_path / "songs" / "new-song"
+    path.mkdir(parents=True)
+    return path
+
+
+@pytest.fixture
+def album_root(tmp_path: Path) -> Path:
+    """Create an otherwise empty album directory for persistence tests."""
+    path = tmp_path / "albums" / "new-album"
     path.mkdir(parents=True)
     return path
 
@@ -154,3 +172,70 @@ def test_load_song_manifest_rejects_invalid_manifest(song_root: Path) -> None:
 
     with pytest.raises(ValidationError):
         load_song_manifest(song_root)
+
+
+def test_create_album_manifest_builds_ordered_primary_sequence() -> None:
+    manifest = create_album_manifest("Connected Album", SONG_IDS)
+
+    assert isinstance(manifest, AlbumManifest)
+    assert manifest.schema_version == 2
+    assert manifest.title == "Connected Album"
+    assert len(manifest.sequences) == 1
+    assert manifest.primary_sequence_id == manifest.sequences[0].id
+    assert [entry.song_id for entry in manifest.sequences[0].entries] == SONG_IDS
+    assert all(entry.id.startswith("entry_") for entry in manifest.sequences[0].entries)
+    assert manifest.collections == []
+    assert manifest.assets == []
+    assert manifest.updated_at == manifest.created_at
+    assert manifest.created_at.utcoffset() is not None
+
+
+def test_create_album_manifest_allows_empty_primary_sequence() -> None:
+    manifest = create_album_manifest("Empty Album", [])
+
+    assert len(manifest.sequences) == 1
+    assert manifest.sequences[0].entries == []
+    assert manifest.primary_sequence_id == manifest.sequences[0].id
+
+
+def test_album_manifest_round_trip(album_root: Path) -> None:
+    created = create_album_manifest("Round Trip Album", SONG_IDS)
+
+    metadata_path = write_album_manifest(album_root, created)
+    loaded = load_album_manifest(album_root)
+
+    assert metadata_path == album_root / METADATA_FILENAME
+    assert metadata_path.is_file()
+    assert loaded == created
+    assert not (album_root / f"{METADATA_FILENAME}.tmp").exists()
+
+
+def test_write_album_manifest_replaces_existing_manifest(album_root: Path) -> None:
+    first = create_album_manifest("First Album Title", SONG_IDS)
+    second = create_album_manifest("Updated Album Title", SONG_IDS)
+    write_album_manifest(album_root, first)
+
+    write_album_manifest(album_root, second)
+
+    assert load_album_manifest(album_root) == second
+
+
+def test_failed_album_replace_preserves_existing_manifest(
+    album_root: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    original = create_album_manifest("Original Album", SONG_IDS)
+    replacement = create_album_manifest("Replacement Album", SONG_IDS)
+    metadata_path = write_album_manifest(album_root, original)
+    original_bytes = metadata_path.read_bytes()
+
+    def fail_replace(source: Path, destination: Path) -> None:
+        raise OSError("simulated album replace failure")
+
+    monkeypatch.setattr(manifest_io.os, "replace", fail_replace)
+
+    with pytest.raises(OSError, match="simulated album replace failure"):
+        write_album_manifest(album_root, replacement)
+
+    assert metadata_path.read_bytes() == original_bytes
+    assert load_album_manifest(album_root) == original

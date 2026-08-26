@@ -300,3 +300,70 @@ def test_album_rejects_missing_primary_sequence_reference(
         match="primary_sequence_id must reference a sequence in this manifest",
     ):
         AlbumManifest.model_validate(data)
+
+
+def test_album_allows_entries_to_share_album_session(
+    load_manifest: Callable[[str], dict],
+) -> None:
+    album = AlbumManifest.model_validate(load_manifest("album.json"))
+
+    entries = album.sequences[0].entries
+    assert entries[0].album_asset_id is not None
+    assert entries[0].album_asset_id == entries[1].album_asset_id
+    assert entries[0].album_asset_id == album.assets[0].id
+
+
+def test_album_rejects_missing_album_asset_reference(
+    load_manifest: Callable[[str], dict],
+) -> None:
+    data = load_manifest("album.json")
+    data["sequences"][0]["entries"][0]["album_asset_id"] = (
+        "asset_2f8c2a4e-8bd2-4d57-a1c7-7e4cbfd52a91"
+    )
+
+    with pytest.raises(
+        ValidationError,
+        match="album_asset_id must reference an asset in this album",
+    ):
+        AlbumManifest.model_validate(data)
+
+
+def test_album_asset_reference_must_be_project(
+    load_manifest: Callable[[str], dict],
+) -> None:
+    data = load_manifest("album.json")
+    data["assets"][0]["kind"] = "audio"
+
+    with pytest.raises(
+        ValidationError,
+        match="album_asset_id must reference a project asset",
+    ):
+        AlbumManifest.model_validate(data)
+
+
+def test_album_asset_reference_must_be_album_session(
+    load_manifest: Callable[[str], dict],
+) -> None:
+    data = load_manifest("album.json")
+    data["assets"][0]["purpose"] = "song_session"
+
+    with pytest.raises(
+        ValidationError,
+        match="album_asset_id must reference an album session",
+    ):
+        AlbumManifest.model_validate(data)
+
+
+def test_collection_album_asset_reference_is_also_validated(
+    load_manifest: Callable[[str], dict],
+) -> None:
+    data = load_manifest("album.json")
+    data["collections"][0]["entries"][0]["album_asset_id"] = (
+        "asset_2f8c2a4e-8bd2-4d57-a1c7-7e4cbfd52a91"
+    )
+
+    with pytest.raises(
+        ValidationError,
+        match="album_asset_id must reference an asset in this album",
+    ):
+        AlbumManifest.model_validate(data)

@@ -13,12 +13,14 @@
         {
           "id": "entry_61236835-49b6-487a-a803-221fa2bc31db",
           "song_id": "song_2f8c2a4e-8bd2-4d57-a1c7-7e4cbfd52a91",
+          "album_asset_id": "asset_e2b0188d-1635-40eb-bc9c-d3caf837c9fa",
           "title_override": null,
           "notes": ""
         },
         {
           "id": "entry_aa1b2397-88b8-4384-9cbe-617792dc0d77",
           "song_id": "song_225aa914-22bd-4e35-b12d-66b145a090b2",
+          "album_asset_id": "asset_e2b0188d-1635-40eb-bc9c-d3caf837c9fa",
           "title_override": "Cooler Album Version",
           "notes": "Replace this with the mastered mix later."
         }
