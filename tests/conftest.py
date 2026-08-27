@@ -18,6 +18,7 @@ from fastapi.testclient import TestClient
 from app.deps import get_file_manager
 from app.main import app
 from models.file_manager import FileManager
+from persistence.storage import initialize_storage
 
 
 @pytest.fixture
@@ -26,6 +27,7 @@ def music_root(tmp_path: Path) -> Path:
     root = tmp_path / "music"
     (root / "songs").mkdir(parents=True)
     (root / "albums").mkdir()
+    initialize_storage(root, "Test Music Library")
     return root
 
 

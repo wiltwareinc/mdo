@@ -9,6 +9,7 @@ from uuid import uuid4
 
 from domain.manifests import AlbumManifest, Asset, AssetKind, AssetLocation, AssetPurpose, Entry
 from persistence.manifests import create_album_manifest, load_album_manifest, load_song_manifest, write_album_manifest
+from persistence.storage import load_storage_manifest
 
 
 def create_album(
@@ -57,7 +58,6 @@ def register_album_session(
     root: Path,
     album_id: str,
     title: str,
-    storage_id: str,
     relative_path: str,
     entry_ids: list[str]
 ) -> AlbumManifest:
@@ -100,14 +100,18 @@ def register_album_session(
     if missing_entry_ids:
         raise ValueError(f"Missing entry ids: {missing_entry_ids}")
 
+    storage_relative_path = (
+        album_root.relative_to(root) / relative_path
+    ).as_posix()
+    
     session_asset = Asset(
         id=f"asset_{uuid4()}",
         kind=AssetKind.PROJECT,
         purpose=AssetPurpose.ALBUM_SESSION,
         title=title,
         location=AssetLocation(
-            storage_id=storage_id,
-            path=relative_path,
+            storage_id=load_storage_manifest(root).id,
+            path=storage_relative_path,
         ),
     )
 
@@ -293,7 +297,6 @@ def reorder_album_entry(
 
     return validated_manifest
 
-
 def remove_album_entry(
     root: Path,
     album_id: str,
@@ -367,4 +370,3 @@ def remove_album_entry(
     _ = write_album_manifest(album_root, validated_manifest)
 
     return validated_manifest
-

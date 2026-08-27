@@ -6,9 +6,10 @@ from fastapi import APIRouter, HTTPException, status
 from pydantic import BaseModel
 
 from app.config import get_config
-from domain.manifests import AlbumManifest, SongManifest
+from domain.manifests import AlbumManifest, SongManifest, StorageManifest
 from persistence.album_library import add_album_entry, create_album, list_albums, register_album_session, remove_album_entry, reorder_album_entry
 from persistence.song_library import create_song, list_songs
+from persistence.storage import initialize_storage, load_storage_manifest
 
 router = APIRouter(prefix="/v2")
 
@@ -21,7 +22,6 @@ class AlbumCreateV2(BaseModel):
 
 class AlbumSessionCreateV2(BaseModel):
     title: str
-    storage_id: str
     relative_path: str
     entry_ids: list[str]
 
@@ -33,6 +33,9 @@ class AlbumEntryCreateV2(BaseModel):
 class AlbumEntryReorderV2(BaseModel):
     position: int
     sequence_id: str | None = None
+
+class StorageInitializeV2(BaseModel):
+    name: str
 
 @router.get("/songs", response_model=list[SongManifest])
 def get_songs() -> list[SongManifest]:
@@ -85,7 +88,6 @@ def post_album_session(
             root=get_config().root,
             album_id=album_id,
             title=payload.title,
-            storage_id=payload.storage_id,
             relative_path=payload.relative_path,
             entry_ids=payload.entry_ids
         )
@@ -176,4 +178,34 @@ def delete_album_entry(
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=str(e)
+        ) from e
+
+@router.post(
+    "/storage",
+    response_model=StorageManifest,
+    status_code=status.HTTP_201_CREATED,
+)
+def post_storage(payload: StorageInitializeV2) -> StorageManifest:
+    try:
+        return initialize_storage(
+            root=get_config().root,
+            name=payload.name,
+        )
+    except FileExistsError as e:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=str(e),
+        ) from e
+
+@router.get(
+    "/storage",
+    response_model=StorageManifest
+)
+def get_storage() -> StorageManifest:
+    try:
+        return load_storage_manifest(get_config().root)
+    except FileNotFoundError as e:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Storage not initialized"
         ) from e

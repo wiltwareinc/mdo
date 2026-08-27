@@ -64,7 +64,7 @@ class AssetLocation(DomainModel):
         if path.is_absolute():
             raise ValueError("asset path must be relative")
 
-        if ".." in str(path):
+        if ".." in path.parts:
             raise ValueError("asset path must not escape storage")
 
         return value
@@ -144,7 +144,6 @@ class Entry(DomainModel):
             return validate_prefixed_uuid(value, "asset")
         return None
 
-
 class Group(DomainModel):
     id: str
     title:str
@@ -218,3 +217,13 @@ class AlbumManifest(DomainModel):
     @field_validator("id")
     def validate_id(cls, value: str) -> str:
         return validate_prefixed_uuid(value, "album")
+
+class StorageManifest(DomainModel):
+    schema_version: Literal[1]
+    id: str
+    name: str
+    created_at: datetime
+    
+    @field_validator("id")
+    def validate_id(cls, value: str) -> str:
+        return validate_prefixed_uuid(value, "storage")

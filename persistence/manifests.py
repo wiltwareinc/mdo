@@ -11,7 +11,6 @@ from domain.manifests import AlbumManifest, Entry, Sequence, SongManifest
 
 METADATA_FILENAME = ".metadata.json"
 
-
 def load_song_manifest(path: Path) -> SongManifest:
     metadata_path = path / METADATA_FILENAME
 
@@ -19,7 +18,6 @@ def load_song_manifest(path: Path) -> SongManifest:
         data = json.load(f)
 
     return SongManifest.model_validate(data)
-
 
 def write_song_manifest(path: Path, manifest: SongManifest) -> Path:
     metadata_path = path / METADATA_FILENAME
@@ -37,7 +35,6 @@ def write_song_manifest(path: Path, manifest: SongManifest) -> Path:
 
     return metadata_path
 
-
 def create_song_manifest(title: str) -> SongManifest:
     now = datetime.now().astimezone()
 
@@ -48,7 +45,6 @@ def create_song_manifest(title: str) -> SongManifest:
         created_at=now,
         updated_at=now,
     )
-
 
 def create_album_manifest(title: str, song_ids: list[str]) -> AlbumManifest:
     now = datetime.now().astimezone()
@@ -80,7 +76,6 @@ def create_album_manifest(title: str, song_ids: list[str]) -> AlbumManifest:
         updated_at=now,
     )
 
-
 def load_album_manifest(album_root: Path) -> AlbumManifest:
     metadata_path = album_root / METADATA_FILENAME
 
@@ -88,7 +83,6 @@ def load_album_manifest(album_root: Path) -> AlbumManifest:
         data = json.load(f)
 
     return AlbumManifest.model_validate(data)
-
 
 def write_album_manifest(album_root: Path, manifest: AlbumManifest) -> Path:
     metadata_path = album_root / METADATA_FILENAME

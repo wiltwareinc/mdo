@@ -16,8 +16,9 @@ from pathlib import Path
 
 from fastapi.testclient import TestClient
 
-from domain.manifests import AlbumManifest, SongManifest
+from domain.manifests import AlbumManifest, SongManifest, StorageManifest
 from persistence.manifests import load_album_manifest, load_song_manifest
+from persistence.storage import STORAGE_FILENAME, load_storage_manifest
 
 
 def test_v2_song_list_starts_empty(api_client: TestClient) -> None:
@@ -141,6 +142,7 @@ def test_v2_duplicate_album_returns_conflict(api_client: TestClient) -> None:
 
 def test_v2_register_album_session_shares_asset_across_entries(
     api_client: TestClient,
+    music_root: Path,
 ) -> None:
     first_song = api_client.post("/v2/songs", json={"title": "Part One"}).json()
     second_song = api_client.post("/v2/songs", json={"title": "Part Two"}).json()
@@ -168,7 +170,12 @@ def test_v2_register_album_session_shares_asset_across_entries(
     session = updated["assets"][0]
     assert session["kind"] == "project"
     assert session["purpose"] == "album_session"
-    assert session["path"] == "projects/continuous-album.rpp"
+    storage = load_storage_manifest(music_root)
+    album_root = next((music_root / "albums").iterdir())
+    assert session["location"]["storage_id"] == storage.id
+    assert session["location"]["path"] == (
+        album_root.relative_to(music_root) / "projects/continuous-album.rpp"
+    ).as_posix()
     assert {
         entry["album_asset_id"]
         for entry in updated["sequences"][0]["entries"]
@@ -443,3 +450,60 @@ def test_v2_remove_album_entry_returns_404_for_unknown_entry(
 
     assert response.status_code == 404
     assert "Entry not found" in response.json()["detail"]
+
+
+def test_v2_initialize_storage_returns_manifest_and_persists(
+    api_client: TestClient,
+    music_root: Path,
+) -> None:
+    (music_root / STORAGE_FILENAME).unlink()
+
+    response = api_client.post(
+        "/v2/storage",
+        json={"name": "API Music Library"},
+    )
+
+    assert response.status_code == 201
+    returned = StorageManifest.model_validate(response.json())
+    assert returned.name == "API Music Library"
+    assert load_storage_manifest(music_root) == returned
+
+
+def test_v2_initialize_storage_returns_conflict_when_already_initialized(
+    api_client: TestClient,
+    music_root: Path,
+) -> None:
+    original = load_storage_manifest(music_root)
+
+    response = api_client.post(
+        "/v2/storage",
+        json={"name": "Replacement Library"},
+    )
+
+    assert response.status_code == 409
+    assert "already initialized" in response.json()["detail"]
+    assert load_storage_manifest(music_root) == original
+
+
+def test_v2_get_storage_returns_current_identity(
+    api_client: TestClient,
+    music_root: Path,
+) -> None:
+    expected = load_storage_manifest(music_root)
+
+    response = api_client.get("/v2/storage")
+
+    assert response.status_code == 200
+    assert StorageManifest.model_validate(response.json()) == expected
+
+
+def test_v2_get_storage_returns_404_when_not_initialized(
+    api_client: TestClient,
+    music_root: Path,
+) -> None:
+    (music_root / STORAGE_FILENAME).unlink()
+
+    response = api_client.get("/v2/storage")
+
+    assert response.status_code == 404
+    assert "Storage not initialized" in response.json()["detail"]

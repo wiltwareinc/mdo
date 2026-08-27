@@ -28,6 +28,7 @@ from persistence.album_library import (
 )
 from persistence.manifests import load_album_manifest, write_album_manifest
 from persistence.song_library import create_song
+from persistence.storage import initialize_storage, load_storage_manifest
 
 
 SONG_IDS = [
@@ -44,6 +45,7 @@ def library_root(tmp_path: Path) -> Path:
     root = tmp_path / "music"
     (root / "albums").mkdir(parents=True)
     (root / "songs").mkdir()
+    initialize_storage(root, "Album Test Library")
     return root
 
 
@@ -147,12 +149,16 @@ def test_register_album_session_shares_one_asset_across_entries(
     assert session.kind == AssetKind.PROJECT
     assert session.purpose == AssetPurpose.ALBUM_SESSION
     assert session.title == "Continuous Reaper Session"
-    assert session.path == "projects/continuous-album.rpp"
+    storage = load_storage_manifest(library_root)
+    assert session.location.storage_id == storage.id
     assert {
         entry.album_asset_id for entry in updated.sequences[0].entries
     } == {session.id}
 
     album_root = next((library_root / "albums").iterdir())
+    assert session.location.path == (
+        album_root.relative_to(library_root) / "projects/continuous-album.rpp"
+    ).as_posix()
     assert load_album_manifest(album_root) == updated
 
 
