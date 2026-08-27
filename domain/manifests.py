@@ -5,11 +5,11 @@ from datetime import datetime
 from enum import StrEnum
 from pathlib import PurePosixPath
 from typing import Literal
+from uuid import UUID
 
 from pydantic import BaseModel, Field, field_validator, model_validator
 from pydantic.config import ConfigDict
 
-from uuid import UUID
 
 def validate_prefixed_uuid(value: str, prefix: str) -> str:
     """helper function to verify a uuid with a prefix"""
@@ -30,33 +30,36 @@ def validate_prefixed_uuid(value: str, prefix: str) -> str:
 
     if str(parsed) != uuid_text:
         raise ValueError("UUID must use a canonical lowercase formatting")
-    
+
     return value
 
 
 class DomainModel(BaseModel):
     """shared validation behavious for domain models"""
 
-    model_config = ConfigDict(extra="forbid") # reject incorrect JSON values
+    model_config = ConfigDict(extra="forbid")  # reject incorrect JSON values
+
 
 class AssetKind(StrEnum):
     PROJECT = "project"
     AUDIO = "audio"
-    DOCUMENT = "document" # or lyric?
+    DOCUMENT = "document"  # or lyric?
     IMAGE = "image"
-    OTHER = "other" # generic bin
+    OTHER = "other"  # generic bin
+
 
 class AssetPurpose(StrEnum):
     SONG_SESSION = "song_session"
     ALBUM_SESSION = "album_session"
-    
+
+
 class AssetLocation(DomainModel):
     storage_id: str
     path: str
 
     @field_validator("storage_id")
     def validate_storage_id(cls, value: str) -> str:
-        return validate_prefixed_uuid(value, "storage") #? do we want this?
+        return validate_prefixed_uuid(value, "storage")  # ? do we want this?
 
     @field_validator("path")
     def validate_path(cls, value: str) -> str:
@@ -68,6 +71,7 @@ class AssetLocation(DomainModel):
             raise ValueError("asset path must not escape storage")
 
         return value
+
 
 class Asset(DomainModel):
     id: str
@@ -81,6 +85,7 @@ class Asset(DomainModel):
     def validate_id(cls, value: str) -> str:
         return validate_prefixed_uuid(value, "asset")
 
+
 class SongManifest(DomainModel):
     schema_version: Literal[2]
 
@@ -88,7 +93,7 @@ class SongManifest(DomainModel):
     title: str
     description: str | None = None
     tags: list[str] = Field(default_factory=list)
-    
+
     assets: list[Asset] = Field(default_factory=list)
     default_project_id: str | None = None
 
@@ -98,29 +103,24 @@ class SongManifest(DomainModel):
     @model_validator(mode="after")
     def validate_default_project(self):
         if self.default_project_id is None:
-            return self # why not None?
+            return self  # why not None?
 
         matching_assets = [
-            asset
-            for asset in self.assets
-            if asset.id == self.default_project_id
+            asset for asset in self.assets if asset.id == self.default_project_id
         ]
 
         if not matching_assets:
-            raise ValueError(
-                "default_project_id must reference an asset in this song"
-            )
+            raise ValueError("default_project_id must reference an asset in this song")
 
         if matching_assets[0].kind != AssetKind.PROJECT:
-            raise ValueError(
-                "default_project_id must reference a project asset"
-            )
+            raise ValueError("default_project_id must reference a project asset")
 
         return self
 
     @field_validator("id")
     def validate_id(cls, value: str) -> str:
         return validate_prefixed_uuid(value, "song")
+
 
 class Entry(DomainModel):
     id: str
@@ -144,11 +144,13 @@ class Entry(DomainModel):
             return validate_prefixed_uuid(value, "asset")
         return None
 
+
 class Group(DomainModel):
     id: str
-    title:str
+    title: str
     description: str = ""
     entries: list[Entry] = Field(default_factory=list)
+
 
 class Sequence(Group):
     """order is preserved"""
@@ -157,12 +159,14 @@ class Sequence(Group):
     def validate_id(cls, value: str) -> str:
         return validate_prefixed_uuid(value, "sequence")
 
+
 class Collection(Group):
     """order is unnecessary"""
 
     @field_validator("id")
     def validate_id(cls, value: str) -> str:
         return validate_prefixed_uuid(value, "collection")
+
 
 class AlbumManifest(DomainModel):
     schema_version: Literal[2]
@@ -172,20 +176,21 @@ class AlbumManifest(DomainModel):
     description: str | None = None
     tags: list[str] = Field(default_factory=list)
 
-    primary_sequence_id: str # out of possibly multiple sequences, which one is the main one
+    primary_sequence_id: (
+        str  # out of possibly multiple sequences, which one is the main one
+    )
 
-    @model_validator(mode='after')
+    @model_validator(mode="after")
     def validate_primary_sequence_id(self):
         if self.primary_sequence_id not in [s.id for s in self.sequences]:
-            raise ValueError("primary_sequence_id must reference a sequence in this manifest")
+            raise ValueError(
+                "primary_sequence_id must reference a sequence in this manifest"
+            )
         return self
 
-    @model_validator(mode='after')
+    @model_validator(mode="after")
     def validate_album_asset_references(self):
-        assets_by_id = {
-            asset.id : asset
-            for asset in self.assets
-        }
+        assets_by_id = {asset.id: asset for asset in self.assets}
 
         groups = [*self.sequences, *self.collections]
 
@@ -197,7 +202,9 @@ class AlbumManifest(DomainModel):
                 asset = assets_by_id.get(entry.album_asset_id)
 
                 if asset is None:
-                    raise ValueError("album_asset_id must reference an asset in this album")
+                    raise ValueError(
+                        "album_asset_id must reference an asset in this album"
+                    )
 
                 if asset.kind != AssetKind.PROJECT:
                     raise ValueError("album_asset_id must reference a project asset")
@@ -205,10 +212,10 @@ class AlbumManifest(DomainModel):
                 if asset.purpose != AssetPurpose.ALBUM_SESSION:
                     raise ValueError("album_asset_id must reference an album session")
         return self
-    
+
     sequences: list[Sequence] = Field(default_factory=list)
-    collections: list[Collection] = Field(default_factory=list) #?
-    
+    collections: list[Collection] = Field(default_factory=list)  # ?
+
     assets: list[Asset] = Field(default_factory=list)
 
     created_at: datetime
@@ -218,12 +225,13 @@ class AlbumManifest(DomainModel):
     def validate_id(cls, value: str) -> str:
         return validate_prefixed_uuid(value, "album")
 
+
 class StorageManifest(DomainModel):
     schema_version: Literal[1]
     id: str
     name: str
     created_at: datetime
-    
+
     @field_validator("id")
     def validate_id(cls, value: str) -> str:
         return validate_prefixed_uuid(value, "storage")

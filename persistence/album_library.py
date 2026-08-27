@@ -1,22 +1,29 @@
 # wiltware 2026
 # filesystem layer for album library
 
+import shutil
 from datetime import date, datetime
 from pathlib import Path
-import shutil
 from uuid import uuid4
 
-
-from domain.manifests import AlbumManifest, Asset, AssetKind, AssetLocation, AssetPurpose, Entry
-from persistence.manifests import create_album_manifest, load_album_manifest, load_song_manifest, write_album_manifest
+from domain.manifests import (
+    AlbumManifest,
+    Asset,
+    AssetKind,
+    AssetLocation,
+    AssetPurpose,
+    Entry,
+)
+from persistence.manifests import (
+    create_album_manifest,
+    load_album_manifest,
+    load_song_manifest,
+    write_album_manifest,
+)
 from persistence.storage import load_storage_manifest
 
 
-def create_album(
-    root: Path,
-    title: str,
-    song_ids: list[str]
-) -> AlbumManifest:
+def create_album(root: Path, title: str, song_ids: list[str]) -> AlbumManifest:
     date = datetime.now().strftime("%Y%m%d")
     name = f"{date}_{title}"
 
@@ -28,7 +35,7 @@ def create_album(
     try:
         (path / "projects").mkdir()
         (path / "artwork").mkdir()
-        (path / "exports").mkdir() #? do we want this?
+        (path / "exports").mkdir()  # ? do we want this?
 
         manifest = create_album_manifest(title=title, song_ids=song_ids)
         _ = write_album_manifest(path, manifest)
@@ -38,13 +45,14 @@ def create_album(
 
     return manifest
 
+
 def list_albums(root: Path) -> list[AlbumManifest]:
     path = root / "albums"
     albums = []
 
     for album in path.iterdir():
         if not album.is_dir():
-            continue #really this is an issue
+            continue  # really this is an issue
 
         md = album / ".metadata.json"
         if not md.exists():
@@ -54,16 +62,13 @@ def list_albums(root: Path) -> list[AlbumManifest]:
 
     return albums
 
+
 def register_album_session(
-    root: Path,
-    album_id: str,
-    title: str,
-    relative_path: str,
-    entry_ids: list[str]
+    root: Path, album_id: str, title: str, relative_path: str, entry_ids: list[str]
 ) -> AlbumManifest:
     albums_root = root / "albums"
     album_root = None
-    manifest: AlbumManifest | None = None # TODO fix errors
+    manifest: AlbumManifest | None = None  # TODO fix errors
 
     # find the right album
     for candidate in albums_root.iterdir():
@@ -85,25 +90,17 @@ def register_album_session(
         raise FileNotFoundError(f"Album not found: {album_id}")
 
     groups = [*manifest.sequences, *manifest.collections]
-    entries_by_id = {
-        entry.id: entry
-        for group in groups
-        for entry in group.entries
-    }
+    entries_by_id = {entry.id: entry for group in groups for entry in group.entries}
 
     missing_entry_ids = [
-        entry_id
-        for entry_id in entry_ids
-        if entry_id not in entries_by_id
+        entry_id for entry_id in entry_ids if entry_id not in entries_by_id
     ]
 
     if missing_entry_ids:
         raise ValueError(f"Missing entry ids: {missing_entry_ids}")
 
-    storage_relative_path = (
-        album_root.relative_to(root) / relative_path
-    ).as_posix()
-    
+    storage_relative_path = (album_root.relative_to(root) / relative_path).as_posix()
+
     session_asset = Asset(
         id=f"asset_{uuid4()}",
         kind=AssetKind.PROJECT,
@@ -129,12 +126,13 @@ def register_album_session(
 
     return validated_manifest
 
+
 def add_album_entry(
     root: Path,
     album_id: str,
     song_id: str,
     sequence_id: str | None = None,
-    position: int | None = None
+    position: int | None = None,
 ) -> AlbumManifest:
     albums_root = root / "albums"
     manifest: AlbumManifest | None = None
@@ -158,7 +156,6 @@ def add_album_entry(
     else:
         raise FileNotFoundError(f"Song not found: {song_id}")
 
-
     # get album manifest
     for entry in albums_root.iterdir():
         if not entry.is_dir():
@@ -174,15 +171,11 @@ def add_album_entry(
             manifest = candidate
             break
 
-
     # connect song to album manifest
     if manifest is None:
         raise FileNotFoundError(f"Album not found: {album_id}")
 
-    new_entry = Entry(
-        id=f"entry_{uuid4()}",
-        song_id=song_id
-    )
+    new_entry = Entry(id=f"entry_{uuid4()}", song_id=song_id)
 
     target_sequence_id = sequence_id or manifest.primary_sequence_id
 
@@ -192,7 +185,7 @@ def add_album_entry(
             for sequence in manifest.sequences
             if sequence.id == target_sequence_id
         ),
-        None
+        None,
     )
 
     if target_sequence is None:
@@ -218,13 +211,14 @@ def add_album_entry(
 
     return validated_manifest
 
+
 def reorder_album_entry(
     root: Path,
     album_id: str,
     entry_id: str,
     position: int,
     sequence_id: str | None = None,
-    ) -> AlbumManifest:
+) -> AlbumManifest:
 
     albums_root = root / "albums"
     album_root: Path | None = None
@@ -251,27 +245,18 @@ def reorder_album_entry(
         raise FileNotFoundError(f"Album not found: {album_id}")
 
     if sequence_id is None:
-       sequence_id = manifest.primary_sequence_id
+        sequence_id = manifest.primary_sequence_id
 
     target_sequence = next(
-        (
-            sequence
-            for sequence in manifest.sequences
-            if sequence.id == sequence_id
-        ),
-        None
+        (sequence for sequence in manifest.sequences if sequence.id == sequence_id),
+        None,
     )
 
     if target_sequence is None:
         raise ValueError(f"Sequence not found: {sequence_id}")
 
     target_entry: Entry | None = next(
-        (
-            entry
-            for entry in target_sequence.entries
-            if entry.id == entry_id
-        ),
-        None
+        (entry for entry in target_sequence.entries if entry.id == entry_id), None
     )
 
     if target_entry is None:
@@ -297,12 +282,13 @@ def reorder_album_entry(
 
     return validated_manifest
 
+
 def remove_album_entry(
     root: Path,
     album_id: str,
     entry_id: str,
     sequence_id: str | None = None,
-    ) -> AlbumManifest:
+) -> AlbumManifest:
 
     albums_root = root / "albums"
     album_root: Path | None = None
@@ -329,27 +315,18 @@ def remove_album_entry(
         raise FileNotFoundError(f"Album not found: {album_id}")
 
     if sequence_id is None:
-       sequence_id = manifest.primary_sequence_id
+        sequence_id = manifest.primary_sequence_id
 
     target_sequence = next(
-        (
-            sequence
-            for sequence in manifest.sequences
-            if sequence.id == sequence_id
-        ),
-        None
+        (sequence for sequence in manifest.sequences if sequence.id == sequence_id),
+        None,
     )
 
     if target_sequence is None:
         raise ValueError(f"Sequence not found: {sequence_id}")
 
     target_entry: Entry | None = next(
-        (
-            entry
-            for entry in target_sequence.entries
-            if entry.id == entry_id
-        ),
-        None
+        (entry for entry in target_sequence.entries if entry.id == entry_id), None
     )
 
     if target_entry is None:

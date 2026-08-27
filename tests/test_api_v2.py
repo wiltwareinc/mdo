@@ -5,7 +5,10 @@ to disk, stable IDs across later list requests, and HTTP conflict handling for
 duplicate directories. They also verify registering one shared album session,
 persisting it, adding songs at requested track positions, and reporting
 unknown album, song, sequence, and entry IDs. Track mutation tests also verify
-reordering and removal through HTTP without losing persistence.
+reordering and removal through HTTP without losing persistence. Song-project
+tests cover registration, default selection, persistence, and HTTP errors.
+Song retrieval tests cover successful lookup, unknown IDs, and persisted
+project information returned by a later request.
 
 Authored by OpenAI Codex on 2026-08-25.
 """
@@ -59,6 +62,53 @@ def test_v2_song_id_is_stable_across_requests(api_client: TestClient) -> None:
     assert len(list_response.json()) == 1
     assert list_response.json()[0]["id"] == created["id"]
     assert list_response.json()[0]["title"] == "Persistent Song"
+
+
+def test_v2_get_song_returns_created_manifest(api_client: TestClient) -> None:
+    created = api_client.post("/v2/songs", json={"title": "Fetched Song"}).json()
+
+    response = api_client.get(f"/v2/songs/{created['id']}")
+
+    assert response.status_code == 200
+    assert SongManifest.model_validate(response.json()) == SongManifest.model_validate(
+        created
+    )
+
+
+def test_v2_get_song_returns_404_for_unknown_song(api_client: TestClient) -> None:
+    response = api_client.get(
+        "/v2/songs/song_00000000-0000-4000-8000-000000000000"
+    )
+
+    assert response.status_code == 404
+    assert "Song not found" in response.json()["detail"]
+
+
+def test_v2_get_song_includes_persisted_project(
+    api_client: TestClient,
+    music_root: Path,
+) -> None:
+    song = api_client.post("/v2/songs", json={"title": "Persistent Project"}).json()
+    song_root = next((music_root / "songs").iterdir())
+    (song_root / "projects" / "shared-session.rpp").write_text(
+        "REAPER_PROJECT",
+        encoding="utf-8",
+    )
+    registered = api_client.post(
+        f"/v2/songs/{song['id']}/projects",
+        json={
+            "title": "Shared Session",
+            "relative_path": "projects/shared-session.rpp",
+        },
+    )
+    assert registered.status_code == 201
+
+    response = api_client.get(f"/v2/songs/{song['id']}")
+
+    assert response.status_code == 200
+    fetched = SongManifest.model_validate(response.json())
+    assert fetched.assets == SongManifest.model_validate(registered.json()).assets
+    assert fetched.default_project_id == fetched.assets[0].id
 
 
 def test_v2_duplicate_song_returns_conflict(api_client: TestClient) -> None:
@@ -507,3 +557,104 @@ def test_v2_get_storage_returns_404_when_not_initialized(
 
     assert response.status_code == 404
     assert "Storage not initialized" in response.json()["detail"]
+
+
+def test_v2_register_song_project_creates_default_asset_and_persists(
+    api_client: TestClient,
+    music_root: Path,
+) -> None:
+    song = api_client.post("/v2/songs", json={"title": "Project API Song"}).json()
+    song_root = next((music_root / "songs").iterdir())
+    (song_root / "projects" / "main-session.rpp").write_text(
+        "REAPER_PROJECT",
+        encoding="utf-8",
+    )
+
+    response = api_client.post(
+        f"/v2/songs/{song['id']}/projects",
+        json={
+            "title": "Main Session",
+            "relative_path": "projects/main-session.rpp",
+        },
+    )
+
+    assert response.status_code == 201
+    updated = SongManifest.model_validate(response.json())
+    assert len(updated.assets) == 1
+    assert updated.default_project_id == updated.assets[0].id
+    assert load_song_manifest(song_root) == updated
+
+
+def test_v2_register_song_project_can_skip_default_selection(
+    api_client: TestClient,
+    music_root: Path,
+) -> None:
+    song = api_client.post("/v2/songs", json={"title": "Alternate API Song"}).json()
+    song_root = next((music_root / "songs").iterdir())
+    (song_root / "projects" / "alternate.rpp").write_text(
+        "REAPER_PROJECT",
+        encoding="utf-8",
+    )
+
+    response = api_client.post(
+        f"/v2/songs/{song['id']}/projects",
+        json={
+            "title": "Alternate Session",
+            "relative_path": "projects/alternate.rpp",
+            "make_default": False,
+        },
+    )
+
+    assert response.status_code == 201
+    assert response.json()["default_project_id"] is None
+
+
+def test_v2_register_song_project_returns_404_for_unknown_song(
+    api_client: TestClient,
+) -> None:
+    response = api_client.post(
+        "/v2/songs/song_00000000-0000-4000-8000-000000000000/projects",
+        json={
+            "title": "Missing Song Session",
+            "relative_path": "projects/missing.rpp",
+        },
+    )
+
+    assert response.status_code == 404
+    assert "Song not found" in response.json()["detail"]
+
+
+def test_v2_register_song_project_returns_404_for_missing_project(
+    api_client: TestClient,
+) -> None:
+    song = api_client.post("/v2/songs", json={"title": "Missing Project API Song"}).json()
+
+    response = api_client.post(
+        f"/v2/songs/{song['id']}/projects",
+        json={
+            "title": "Missing Session",
+            "relative_path": "projects/missing.rpp",
+        },
+    )
+
+    assert response.status_code == 404
+    assert "Project not found" in response.json()["detail"]
+
+
+def test_v2_register_song_project_returns_400_for_escaping_path(
+    api_client: TestClient,
+    music_root: Path,
+) -> None:
+    song = api_client.post("/v2/songs", json={"title": "Safe API Song"}).json()
+    (music_root / "outside.rpp").write_text("OUTSIDE", encoding="utf-8")
+
+    response = api_client.post(
+        f"/v2/songs/{song['id']}/projects",
+        json={
+            "title": "Outside Session",
+            "relative_path": "../../outside.rpp",
+        },
+    )
+
+    assert response.status_code == 400
+    assert "must not escape storage" in response.json()["detail"]
