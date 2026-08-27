@@ -1,9 +1,11 @@
 """Validate the portable version-2 song and album manifest contracts.
 
 These tests cover successful fixture parsing, strict schema handling, every
-prefixed UUID field, asset purposes, and internal manifest references.
+prefixed UUID field, storage-relative asset locations, shared project assets,
+asset purposes, and internal manifest references.
 
-Authored by OpenAI Codex on 2026-08-07; ID coverage expanded on 2026-08-11.
+Authored by OpenAI Codex on 2026-08-07; ID coverage expanded on 2026-08-11;
+shared asset-location coverage added on 2026-08-27.
 """
 
 from __future__ import annotations
@@ -38,6 +40,28 @@ def test_song_fixture_is_valid(load_manifest: Callable[[str], dict]) -> None:
 
     assert song.title == "Beautiful Tune"
     assert song.default_project_id == song.assets[0].id
+    assert song.assets[0].location.storage_id == (
+        "storage_1c2ee06f-dbc8-49c8-87ab-c279b5444a91"
+    )
+    assert song.assets[0].location.path == (
+        "songs/20260415_shared-session-host/projects/main-session"
+    )
+
+
+def test_two_songs_can_share_the_same_default_project_asset(
+    load_manifest: Callable[[str], dict],
+) -> None:
+    first_data = load_manifest("song.json")
+    second_data = load_manifest("song.json")
+    second_data["id"] = "song_225aa914-22bd-4e35-b12d-66b145a090b2"
+    second_data["title"] = "Connected Tune"
+
+    first = SongManifest.model_validate(first_data)
+    second = SongManifest.model_validate(second_data)
+
+    assert first.default_project_id == second.default_project_id
+    assert first.assets[0].id == second.assets[0].id
+    assert first.assets[0].location == second.assets[0].location
 
 
 def test_album_fixture_is_valid(load_manifest: Callable[[str], dict]) -> None:
@@ -117,7 +141,10 @@ def test_prefixed_uuid_helper_rejects_invalid_values(
                 "kind": "project",
                 "purpose": "song_session",
                 "title": "Session",
-                "path": "projects/session",
+                "location": {
+                    "storage_id": f"storage_{UUID4}",
+                    "path": "songs/example/projects/session",
+                },
             },
         ),
         (
@@ -162,7 +189,10 @@ def test_nested_models_accept_correct_id_prefixes(
                 "kind": "project",
                 "purpose": "song_session",
                 "title": "Session",
-                "path": "projects/session",
+                "location": {
+                    "storage_id": f"storage_{UUID4}",
+                    "path": "songs/example/projects/session",
+                },
             },
         ),
         (
@@ -287,6 +317,39 @@ def test_asset_rejects_unknown_purpose(
 
     with pytest.raises(ValidationError):
         SongManifest.model_validate(data)
+
+
+def test_asset_rejects_non_storage_id_in_location(
+    load_manifest: Callable[[str], dict],
+) -> None:
+    data = load_manifest("song.json")
+    data["assets"][0]["location"]["storage_id"] = f"song_{UUID4}"
+
+    with pytest.raises(ValidationError) as error:
+        SongManifest.model_validate(data)
+
+    assert ("assets", 0, "location", "storage_id") in _error_locations(error.value)
+
+
+@pytest.mark.parametrize(
+    "path",
+    [
+        "/Volumes/Studio SSD/songs/example/projects/session",
+        "../outside/projects/session",
+        "songs/example/../../outside",
+    ],
+)
+def test_asset_location_rejects_absolute_or_escaping_path(
+    path: str,
+    load_manifest: Callable[[str], dict],
+) -> None:
+    data = load_manifest("song.json")
+    data["assets"][0]["location"]["path"] = path
+
+    with pytest.raises(ValidationError) as error:
+        SongManifest.model_validate(data)
+
+    assert ("assets", 0, "location", "path") in _error_locations(error.value)
 
 
 def test_album_rejects_missing_primary_sequence_reference(

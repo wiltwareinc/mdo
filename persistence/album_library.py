@@ -7,7 +7,7 @@ import shutil
 from uuid import uuid4
 
 
-from domain.manifests import AlbumManifest, Asset, AssetKind, AssetPurpose, Entry
+from domain.manifests import AlbumManifest, Asset, AssetKind, AssetLocation, AssetPurpose, Entry
 from persistence.manifests import create_album_manifest, load_album_manifest, load_song_manifest, write_album_manifest
 
 
@@ -57,12 +57,13 @@ def register_album_session(
     root: Path,
     album_id: str,
     title: str,
+    storage_id: str,
     relative_path: str,
     entry_ids: list[str]
 ) -> AlbumManifest:
     albums_root = root / "albums"
     album_root = None
-    manifest: AlbumManifest = None # TODO fix errors
+    manifest: AlbumManifest | None = None # TODO fix errors
 
     # find the right album
     for candidate in albums_root.iterdir():
@@ -104,7 +105,10 @@ def register_album_session(
         kind=AssetKind.PROJECT,
         purpose=AssetPurpose.ALBUM_SESSION,
         title=title,
-        path=relative_path,
+        location=AssetLocation(
+            storage_id=storage_id,
+            path=relative_path,
+        ),
     )
 
     manifest.assets.append(session_asset)

@@ -21,6 +21,7 @@ class AlbumCreateV2(BaseModel):
 
 class AlbumSessionCreateV2(BaseModel):
     title: str
+    storage_id: str
     relative_path: str
     entry_ids: list[str]
 
@@ -84,6 +85,7 @@ def post_album_session(
             root=get_config().root,
             album_id=album_id,
             title=payload.title,
+            storage_id=payload.storage_id,
             relative_path=payload.relative_path,
             entry_ids=payload.entry_ids
         )

@@ -12,9 +12,12 @@
       "id": "asset_6dc2d57b-0ce2-44cf-8b1b-991e419f813c",
       "kind": "project",
       "purpose": "song_session",
-      "title": "Main Reaper Session",
-      "description": "Primary working session.",
-      "path": "projects/main-session"
+      "title": "Shared Reaper Session",
+      "description": "Shared with another song that uses the same project.",
+      "location": {
+        "storage_id": "storage_1c2ee06f-dbc8-49c8-87ab-c279b5444a91",
+        "path": "songs/20260415_shared-session-host/projects/main-session"
+      }
     }
   ],
   "default_project_id": "asset_6dc2d57b-0ce2-44cf-8b1b-991e419f813c",

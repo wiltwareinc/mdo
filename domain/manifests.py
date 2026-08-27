@@ -3,6 +3,7 @@
 
 from datetime import datetime
 from enum import StrEnum
+from pathlib import PurePosixPath
 from typing import Literal
 
 from pydantic import BaseModel, Field, field_validator, model_validator
@@ -49,6 +50,24 @@ class AssetPurpose(StrEnum):
     SONG_SESSION = "song_session"
     ALBUM_SESSION = "album_session"
     
+class AssetLocation(DomainModel):
+    storage_id: str
+    path: str
+
+    @field_validator("storage_id")
+    def validate_storage_id(cls, value: str) -> str:
+        return validate_prefixed_uuid(value, "storage") #? do we want this?
+
+    @field_validator("path")
+    def validate_path(cls, value: str) -> str:
+        path = PurePosixPath(value)
+        if path.is_absolute():
+            raise ValueError("asset path must be relative")
+
+        if ".." in str(path):
+            raise ValueError("asset path must not escape storage")
+
+        return value
 
 class Asset(DomainModel):
     id: str
@@ -56,7 +75,7 @@ class Asset(DomainModel):
     purpose: AssetPurpose
     title: str
     description: str | None = None
-    path: str # or Path?
+    location: AssetLocation
 
     @field_validator("id")
     def validate_id(cls, value: str) -> str:

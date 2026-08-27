@@ -48,7 +48,10 @@
       "purpose": "album_session",
       "title": "Full Album Reaper Session",
       "description": "Mixing and sequencing session for the main album.",
-      "path": "projects/full-album-session"
+      "location": {
+        "storage_id": "storage_1c2ee06f-dbc8-49c8-87ab-c279b5444a91",
+        "path": "albums/20260701-awesome-album/projects/full-album-session"
+      }
     }
   ],
   "created_at": "2026-07-01T12:00:00-04:00",
