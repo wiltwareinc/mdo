@@ -74,12 +74,63 @@ def get_song(root: Path, song_id: str) -> SongManifest:
 
 
 def register_song_project(
-    root: Path, song_id: str, title: str, relative_path: str, make_default: bool = True
+    root: Path,
+    song_id: str,
+    title: str,
+    relative_path: str,
+    parent_song: str | None = None,
+    make_default: bool = True,
 ) -> SongManifest:
+    """Register a new or shared project with a song.
+
+    Without ``parent_song``, the project is resolved relative to the target
+    song and a new asset identity is created. With ``parent_song``, an existing
+    project asset is found in that song and its complete identity and location
+    are reused in the target song.
+
+    Args:
+        root:
+            Root directory of the active MDO storage. This directory contains
+            ``.storage.json`` and the ``songs`` directory.
+
+        song_id:
+            Stable ID of the song receiving the project asset.
+
+        title:
+            Human-readable name used when creating a new asset. When sharing
+            an existing asset, its original title is preserved.
+
+        relative_path:
+            Path to the project relative to the target song, or relative to
+            ``parent_song`` when sharing an existing project.
+
+        parent_song:
+            Optional stable ID of the song whose registered project should be
+            shared with the target song.
+
+        make_default:
+            Whether the newly created asset should become the song's default
+            project. Defaults to True.
+
+    Returns:
+        The validated and persisted SongManifest containing the new asset.
+
+    Raises:
+        FileNotFoundError:
+            If the target song, parent song, storage identity, registered
+            parent asset, or project path does not exist.
+
+        ValueError:
+            If the generated asset location or updated song manifest is
+            invalid.
+    """
     songs_root = root / "songs"
     song_path: Path | None = None
     manifest: SongManifest | None = None
+    parent_path: Path | None = None
+    parent_manifest: SongManifest | None = None
 
+    # Locate the target song and, when requested, the song owning the asset.
     for song in songs_root.iterdir():
         if not song.is_dir():
             continue
@@ -92,30 +143,73 @@ def register_song_project(
         if candidate.id == song_id:
             manifest = candidate
             song_path = song
+
+        if parent_song is not None and candidate.id == parent_song:
+            parent_manifest = candidate
+            parent_path = song
+
+        if song_path is not None and (
+            parent_song is None or parent_manifest is not None
+        ):
             break
+
+    if parent_song is not None and parent_manifest is None:
+        raise FileNotFoundError(f"Parent song not found: {parent_song}")
 
     if song_path is None or manifest is None:
         raise FileNotFoundError(f"Song not found: {song_id}")
 
     storage = load_storage_manifest(root)
 
-    storage_relative_path = (song_path.relative_to(root) / relative_path).as_posix()
+    if parent_manifest is not None and parent_path is not None:
+        parent_storage_path = (
+            parent_path.relative_to(root) / relative_path
+        ).as_posix()
+        parent_asset = next(
+            (
+                candidate
+                for candidate in parent_manifest.assets
+                if candidate.kind == AssetKind.PROJECT
+                and candidate.location.storage_id == storage.id
+                and candidate.location.path == parent_storage_path
+            ),
+            None,
+        )
+        if parent_asset is None:
+            raise FileNotFoundError(
+                f"Parent song does not contain project at {relative_path}"
+            )
 
-    location = AssetLocation(storage_id=storage.id, path=storage_relative_path)
+        asset = parent_asset.model_copy(deep=True)
+    else:
+        storage_relative_path = (
+            song_path.relative_to(root) / relative_path
+        ).as_posix()
+        asset = Asset(
+            id=f"asset_{uuid4()}",
+            kind=AssetKind.PROJECT,
+            purpose=AssetPurpose.SONG_SESSION,
+            title=title,
+            location=AssetLocation(
+                storage_id=storage.id,
+                path=storage_relative_path,
+            ),
+        )
 
-    project_path = root / location.path
+    project_path = root / asset.location.path
     if not project_path.exists():
         raise FileNotFoundError(f"Project not found: {project_path}")
 
-    asset = Asset(
-        id=f"asset_{uuid4()}",
-        kind=AssetKind.PROJECT,
-        purpose=AssetPurpose.SONG_SESSION,
-        title=title,
-        location=location,
+    existing_asset = next(
+        (candidate for candidate in manifest.assets if candidate.id == asset.id),
+        None,
     )
-
-    manifest.assets.append(asset)  # add to the bunch
+    if existing_asset is None:
+        manifest.assets.append(asset)
+    elif existing_asset != asset:
+        raise ValueError(f"Asset ID has conflicting metadata: {asset.id}")
+    else:
+        asset = existing_asset
 
     if make_default:
         manifest.default_project_id = asset.id

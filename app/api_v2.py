@@ -29,6 +29,7 @@ class SongCreateV2(BaseModel):
 class ProjectCreateV2(BaseModel):
     title: str
     relative_path: str
+    parent_song: str | None = None
     make_default: bool = True
 
 
@@ -87,6 +88,7 @@ def post_song_project(song_id: str, payload: ProjectCreateV2) -> SongManifest:
             song_id=song_id,
             title=payload.title,
             relative_path=payload.relative_path,
+            parent_song=payload.parent_song,
             make_default=payload.make_default,
         )
     except FileNotFoundError as e:

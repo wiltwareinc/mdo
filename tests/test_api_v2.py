@@ -609,6 +609,45 @@ def test_v2_register_song_project_can_skip_default_selection(
     assert response.json()["default_project_id"] is None
 
 
+def test_v2_register_song_project_shares_parent_asset(
+    api_client: TestClient,
+    music_root: Path,
+) -> None:
+    parent = api_client.post("/v2/songs", json={"title": "API Parent"}).json()
+    target = api_client.post("/v2/songs", json={"title": "API Target"}).json()
+    parent_root = next(
+        path
+        for path in (music_root / "songs").iterdir()
+        if load_song_manifest(path).id == parent["id"]
+    )
+    (parent_root / "projects" / "shared.rpp").write_text(
+        "REAPER_PROJECT",
+        encoding="utf-8",
+    )
+    parent_response = api_client.post(
+        f"/v2/songs/{parent['id']}/projects",
+        json={
+            "title": "Shared API Session",
+            "relative_path": "projects/shared.rpp",
+        },
+    )
+    assert parent_response.status_code == 201
+    parent_asset = parent_response.json()["assets"][0]
+
+    response = api_client.post(
+        f"/v2/songs/{target['id']}/projects",
+        json={
+            "title": "Shared API Session",
+            "relative_path": "projects/shared.rpp",
+            "parent_song": parent["id"],
+        },
+    )
+
+    assert response.status_code == 201
+    assert response.json()["assets"] == [parent_asset]
+    assert response.json()["default_project_id"] == parent_asset["id"]
+
+
 def test_v2_register_song_project_returns_404_for_unknown_song(
     api_client: TestClient,
 ) -> None:

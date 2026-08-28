@@ -5,7 +5,8 @@ expected directory layout, can be listed again, rejects duplicate directories,
 ignores unrelated entries, and does not leave a partial song after a failed
 manifest write. Project-registration tests verify storage-relative locations,
 default selection, optional defaults, missing targets, path safety, and
-persistence failure behavior.
+persistence failure behavior. Shared-project tests verify that multiple songs
+reuse one asset identity and location without creating duplicate references.
 
 Authored by OpenAI Codex on 2026-08-25.
 """
@@ -145,6 +146,90 @@ def test_register_song_project_can_leave_default_unchanged(
 
     assert len(updated.assets) == 1
     assert updated.default_project_id is None
+
+
+def test_register_song_project_reuses_parent_asset_and_location(
+    library_root: Path,
+) -> None:
+    parent = create_song(library_root, "Connected Parent")
+    target = create_song(library_root, "Connected Target")
+    parent_root = next(
+        path
+        for path in (library_root / "songs").iterdir()
+        if load_song_manifest(path).id == parent.id
+    )
+    target_root = next(
+        path
+        for path in (library_root / "songs").iterdir()
+        if load_song_manifest(path).id == target.id
+    )
+    (parent_root / "projects" / "connected.rpp").write_text(
+        "REAPER_PROJECT",
+        encoding="utf-8",
+    )
+    registered_parent = register_song_project(
+        library_root,
+        parent.id,
+        "Connected Session",
+        "projects/connected.rpp",
+    )
+
+    shared = register_song_project(
+        library_root,
+        target.id,
+        "Ignored Replacement Title",
+        "projects/connected.rpp",
+        parent_song=parent.id,
+    )
+
+    assert len(shared.assets) == 1
+    assert shared.assets[0] == registered_parent.assets[0]
+    assert shared.default_project_id == registered_parent.assets[0].id
+    assert shared.assets[0].location.path == (
+        parent_root.relative_to(library_root) / "projects/connected.rpp"
+    ).as_posix()
+    assert load_song_manifest(target_root) == shared
+
+    repeated = register_song_project(
+        library_root,
+        target.id,
+        "Still Ignored",
+        "projects/connected.rpp",
+        parent_song=parent.id,
+    )
+    assert len(repeated.assets) == 1
+    assert repeated.assets[0] == registered_parent.assets[0]
+
+
+def test_register_song_project_rejects_unknown_parent_song(
+    library_root: Path,
+) -> None:
+    target = create_song(library_root, "Orphan Target")
+
+    with pytest.raises(FileNotFoundError, match="Parent song not found"):
+        register_song_project(
+            library_root,
+            target.id,
+            "Missing Shared Session",
+            "projects/missing.rpp",
+            parent_song="song_00000000-0000-4000-8000-000000000000",
+        )
+
+
+def test_register_song_project_rejects_unregistered_parent_project(
+    library_root: Path,
+) -> None:
+    parent = create_song(library_root, "Unregistered Parent")
+    target = create_song(library_root, "Unregistered Target")
+
+    with pytest.raises(FileNotFoundError, match="does not contain project"):
+        register_song_project(
+            library_root,
+            target.id,
+            "Unregistered Session",
+            "projects/unregistered.rpp",
+            parent_song=parent.id,
+        )
 
 
 def test_register_song_project_rejects_unknown_song(
