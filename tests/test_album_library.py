@@ -6,6 +6,8 @@ items, cleanup after a failed manifest write, and registration of one shared
 album-session asset across multiple track entries. Entry tests cover default
 and explicit sequences, exact insertion positions, invalid targets, and disk
 persistence, plus reordering and removal without regenerating stable IDs.
+Album creation tests also verify that every initial track references a song
+that is actually present in the library.
 
 Authored by OpenAI Codex on 2026-08-26.
 """
@@ -26,10 +28,14 @@ from persistence.album_library import (
     remove_album_entry,
     reorder_album_entry,
 )
-from persistence.manifests import load_album_manifest, write_album_manifest
+from persistence.manifests import (
+    load_album_manifest,
+    load_song_manifest,
+    write_album_manifest,
+    write_song_manifest,
+)
 from persistence.song_library import create_song
 from persistence.storage import initialize_storage, load_storage_manifest
-
 
 SONG_IDS = [
     "song_2f8c2a4e-8bd2-4d57-a1c7-7e4cbfd52a91",
@@ -41,11 +47,22 @@ ALTERNATE_SEQUENCE_ID = "sequence_11111111-1111-4111-8111-111111111111"
 
 @pytest.fixture
 def library_root(tmp_path: Path) -> Path:
-    """Create an empty MDO root with its required albums directory."""
+    """Create an MDO root containing the two stable fixture songs."""
     root = tmp_path / "music"
     (root / "albums").mkdir(parents=True)
     (root / "songs").mkdir()
     initialize_storage(root, "Album Test Library")
+
+    for number, song_id in enumerate(SONG_IDS, start=1):
+        created = create_song(root, f"Fixture Song {number}")
+        song_root = next(
+            path
+            for path in (root / "songs").iterdir()
+            if load_song_manifest(path).id == created.id
+        )
+        stable_fixture = created.model_copy(update={"id": song_id})
+        write_song_manifest(song_root, stable_fixture)
+
     return root
 
 
@@ -81,6 +98,19 @@ def test_create_album_allows_empty_primary_sequence(library_root: Path) -> None:
     assert len(manifest.sequences) == 1
     assert manifest.sequences[0].entries == []
     assert manifest.primary_sequence_id == manifest.sequences[0].id
+
+
+def test_create_album_rejects_unknown_song_without_creating_directory(
+    library_root: Path,
+) -> None:
+    with pytest.raises(FileNotFoundError, match="Songs not found"):
+        create_album(
+            library_root,
+            "Invalid Album",
+            [SONG_IDS[0], UNKNOWN_SONG_ID],
+        )
+
+    assert list((library_root / "albums").iterdir()) == []
 
 
 def test_list_albums_returns_created_manifests(library_root: Path) -> None:
@@ -151,14 +181,17 @@ def test_register_album_session_shares_one_asset_across_entries(
     assert session.title == "Continuous Reaper Session"
     storage = load_storage_manifest(library_root)
     assert session.location.storage_id == storage.id
-    assert {
-        entry.album_asset_id for entry in updated.sequences[0].entries
-    } == {session.id}
+    assert {entry.album_asset_id for entry in updated.sequences[0].entries} == {
+        session.id
+    }
 
     album_root = next((library_root / "albums").iterdir())
-    assert session.location.path == (
-        album_root.relative_to(library_root) / "projects/continuous-album.rpp"
-    ).as_posix()
+    assert (
+        session.location.path
+        == (
+            album_root.relative_to(library_root) / "projects/continuous-album.rpp"
+        ).as_posix()
+    )
     assert load_album_manifest(album_root) == updated
 
 

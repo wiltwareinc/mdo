@@ -138,6 +138,8 @@ def post_album(payload: AlbumCreateV2) -> AlbumManifest:
         return create_album(get_config().root, payload.title, payload.song_ids)
     except FileExistsError as e:
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(e)) from e
+    except FileNotFoundError as e:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e)) from e
 
 
 @router.post(

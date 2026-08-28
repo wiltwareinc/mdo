@@ -20,13 +20,28 @@ from persistence.manifests import (
     load_song_manifest,
     write_album_manifest,
 )
+from persistence.song_library import list_songs
 from persistence.storage import load_storage_manifest
 
 
 def create_album(root: Path, title: str, song_ids: list[str]) -> AlbumManifest:
-    date = datetime.now().strftime("%Y%m%d")
+    date = datetime.now().astimezone().strftime("%Y%m%d")
     name = f"{date}_{title}"
 
+    # verify all songs exist in ids
+    available_song_ids = {
+        manifest.id
+        for manifest in list_songs(root)
+    }
+    missing_song_ids = [
+        song_id
+        for song_id in song_ids
+        if song_id not in available_song_ids
+    ]
+    if missing_song_ids:
+        raise FileNotFoundError(f"Songs not found: {missing_song_ids}")
+
+    
     path = root / "albums" / name
     if path.exists():
         raise FileExistsError(f"Album already exists: {path}")
@@ -48,7 +63,7 @@ def create_album(root: Path, title: str, song_ids: list[str]) -> AlbumManifest:
 
 def list_albums(root: Path) -> list[AlbumManifest]:
     path = root / "albums"
-    albums = []
+    albums: list[AlbumManifest] = []
 
     for album in path.iterdir():
         if not album.is_dir():
@@ -122,7 +137,7 @@ def register_album_session(
         manifest.model_dump(mode="python")
     )
 
-    write_album_manifest(album_root, validated_manifest)
+    _ = write_album_manifest(album_root, validated_manifest)
 
     return validated_manifest
 
@@ -232,8 +247,6 @@ def reorder_album_entry(
             continue
 
         candidate = load_album_manifest(album)
-        if candidate is None:
-            continue
 
         if candidate.id == album_id:
             album_root = album
@@ -302,8 +315,6 @@ def remove_album_entry(
             continue
 
         candidate = load_album_manifest(album)
-        if candidate is None:
-            continue
 
         if candidate.id == album_id:
             album_root = album

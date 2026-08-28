@@ -27,7 +27,7 @@ def write_song_manifest(path: Path, manifest: SongManifest) -> Path:
 
     with temporary_path.open("w", encoding="utf-8") as file:
         json.dump(data, file, indent=2)
-        file.write("\n")
+        _ = file.write("\n")
         file.flush()
         os.fsync(file.fileno())
 
@@ -92,7 +92,7 @@ def write_album_manifest(album_root: Path, manifest: AlbumManifest) -> Path:
 
     with temporary_path.open("w", encoding="utf-8") as file:
         json.dump(data, file, indent=2)
-        file.write("\n")
+        _ = file.write("\n")
         file.flush()
         os.fsync(file.fileno())
 

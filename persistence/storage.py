@@ -1,9 +1,9 @@
 # wiltware 2026
 # storage id management
 
-from datetime import datetime
 import json
 import os
+from datetime import datetime
 from pathlib import Path
 from uuid import uuid4
 
@@ -14,12 +14,9 @@ STORAGE_FILENAME = ".storage.json"
 
 def create_storage_manifest(name: str) -> StorageManifest:
     now = datetime.now().astimezone()
-    
+
     return StorageManifest(
-        schema_version=1,
-        id=f"storage_{uuid4()}",
-        name=name,
-        created_at=now
+        schema_version=1, id=f"storage_{uuid4()}", name=name, created_at=now
     )
 
 
@@ -57,12 +54,29 @@ def resolve_asset_location(
 
     return root / location.path
 
-def initialize_storage(root: Path, name: str) -> StorageManifest:
-    storage_path = root / STORAGE_FILENAME
 
+def initialize_storage(root: Path, name: str) -> StorageManifest:
+    """Initializes both the storage manifest and the folders"""
+    root.mkdir(parents=True, exist_ok=True)
+    
+    storage_path = root / STORAGE_FILENAME
     if storage_path.exists():
         raise FileExistsError(f"storage already initialized: {storage_path}")
 
+
+    # create the folders
+    required_dir = [
+        root / "songs",
+        root / "albums"
+    ]
+
+    for dir in required_dir:
+        if dir.exists() and not dir.is_dir():
+            raise NotADirectoryError(f"expected directory: {dir}")
+
+    for dir in required_dir:
+        dir.mkdir(exist_ok=True)
+    
     manifest = create_storage_manifest(name)
     _ = write_storage_manifest(root, manifest)
 

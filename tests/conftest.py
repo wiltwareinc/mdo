@@ -11,6 +11,7 @@ from __future__ import annotations
 import json
 from collections.abc import Callable, Iterator
 from pathlib import Path
+from typing import Any
 
 import pytest
 from fastapi.testclient import TestClient
@@ -27,7 +28,7 @@ def music_root(tmp_path: Path) -> Path:
     root = tmp_path / "music"
     (root / "songs").mkdir(parents=True)
     (root / "albums").mkdir()
-    initialize_storage(root, "Test Music Library")
+    _ = initialize_storage(root, "Test Music Library")
     return root
 
 
@@ -38,17 +39,17 @@ def config_path(tmp_path: Path, music_root: Path) -> Path:
     template_root.mkdir()
 
     reaper_template = template_root / "default.RPP"
-    reaper_template.write_text("dummy reaper template", encoding="utf-8")
+    _ = reaper_template.write_text("dummy reaper template", encoding="utf-8")
 
     ableton_root = template_root / "ableton"
     ableton_root.mkdir()
     (ableton_root / "Samples").mkdir()
     (ableton_root / "Ableton Project Info").mkdir()
     ableton_template = ableton_root / "default.als"
-    ableton_template.write_text("dummy ableton template", encoding="utf-8")
+    _ = ableton_template.write_text("dummy ableton template", encoding="utf-8")
 
     path = tmp_path / "mdo-config.json"
-    path.write_text(
+    _ = path.write_text(
         json.dumps(
             {
                 "root": str(music_root),
@@ -85,7 +86,7 @@ def configured_environment(
 
 @pytest.fixture
 def file_manager(
-    configured_environment: None,
+    configured_environment: None,  # pyright: ignore[reportUnusedParameter]
     music_root: Path,
 ) -> FileManager:
     """Return a FileManager backed only by the temporary library."""
@@ -93,18 +94,20 @@ def file_manager(
 
 
 @pytest.fixture
-def api_client(configured_environment: None) -> Iterator[TestClient]:
+def api_client(
+    configured_environment: None,  # pyright: ignore[reportUnusedParameter]
+) -> Iterator[TestClient]:
     """Return an in-process FastAPI client using the temporary library."""
     with TestClient(app) as client:
         yield client
 
 
 @pytest.fixture
-def load_manifest() -> Callable[[str], dict]:
+def load_manifest() -> Callable[[str], dict[str, Any]]:
     """Return a loader that produces fresh dictionaries from JSON fixtures."""
     fixture_root = Path(__file__).parent / "fixtures" / "manifests"
 
-    def _load(filename: str) -> dict:
+    def _load(filename: str) -> dict[str, Any]:
         return json.loads((fixture_root / filename).read_text(encoding="utf-8"))
 
     return _load

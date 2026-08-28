@@ -158,6 +158,23 @@ def test_v2_create_album_preserves_song_order_and_writes_metadata(
     assert load_album_manifest(album_directories[0]).id == body["id"]
 
 
+def test_v2_create_album_returns_404_for_unknown_song(
+    api_client: TestClient,
+    music_root: Path,
+) -> None:
+    response = api_client.post(
+        "/v2/albums",
+        json={
+            "title": "Invalid API Album",
+            "song_ids": ["song_00000000-0000-4000-8000-000000000000"],
+        },
+    )
+
+    assert response.status_code == 404
+    assert "Songs not found" in response.json()["detail"]
+    assert list((music_root / "albums").iterdir()) == []
+
+
 def test_v2_album_id_is_stable_across_requests(api_client: TestClient) -> None:
     create_response = api_client.post(
         "/v2/albums",
