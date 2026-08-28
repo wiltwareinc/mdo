@@ -2,7 +2,7 @@
 # filesystem layer for album library
 
 import shutil
-from datetime import date, datetime
+from datetime import datetime
 from pathlib import Path
 from uuid import uuid4
 
@@ -219,7 +219,6 @@ def reorder_album_entry(
     position: int,
     sequence_id: str | None = None,
 ) -> AlbumManifest:
-
     albums_root = root / "albums"
     album_root: Path | None = None
     manifest: AlbumManifest | None = None
@@ -347,3 +346,21 @@ def remove_album_entry(
     _ = write_album_manifest(album_root, validated_manifest)
 
     return validated_manifest
+
+
+def get_album(root: Path, album_id: str) -> AlbumManifest:
+    albums_root = root / "albums"
+
+    for album_path in albums_root.iterdir():
+        if not album_path.is_dir():
+            continue
+
+        md = album_path / ".metadata.json"
+        if not md.exists():
+            continue
+
+        manifest = load_album_manifest(album_path)
+        if manifest.id == album_id:
+            return manifest
+
+    raise FileNotFoundError(f"Album not found: {album_id}")

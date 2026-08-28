@@ -174,6 +174,29 @@ def test_v2_album_id_is_stable_across_requests(api_client: TestClient) -> None:
     assert list_response.json()[0]["title"] == "Persistent Album"
 
 
+def test_v2_get_album_returns_created_manifest(api_client: TestClient) -> None:
+    created = api_client.post(
+        "/v2/albums",
+        json={"title": "Fetched Album", "song_ids": []},
+    ).json()
+
+    response = api_client.get(f"/v2/albums/{created['id']}")
+
+    assert response.status_code == 200
+    assert AlbumManifest.model_validate(response.json()) == AlbumManifest.model_validate(
+        created
+    )
+
+
+def test_v2_get_album_returns_404_for_unknown_album(api_client: TestClient) -> None:
+    response = api_client.get(
+        "/v2/albums/album_00000000-0000-4000-8000-000000000000"
+    )
+
+    assert response.status_code == 404
+    assert "Album not found" in response.json()["detail"]
+
+
 def test_v2_duplicate_album_returns_conflict(api_client: TestClient) -> None:
     first_response = api_client.post(
         "/v2/albums",
@@ -254,6 +277,10 @@ def test_v2_registered_album_session_is_persisted(
 
     album_root = next((music_root / "albums").iterdir())
     assert load_album_manifest(album_root) == returned
+
+    get_response = api_client.get(f"/v2/albums/{album['id']}")
+    assert get_response.status_code == 200
+    assert AlbumManifest.model_validate(get_response.json()) == returned
 
 
 def test_v2_register_album_session_returns_404_for_unknown_album(

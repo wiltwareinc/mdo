@@ -15,6 +15,9 @@ from persistence.album_library import (
     remove_album_entry,
     reorder_album_entry,
 )
+from persistence.album_library import (
+    get_album as get_album_from_library,
+)
 from persistence.song_library import create_song, list_songs, register_song_project
 from persistence.song_library import get_song as get_song_from_library
 from persistence.storage import initialize_storage, load_storage_manifest
@@ -115,6 +118,14 @@ def get_song(song_id: str) -> SongManifest:
 @router.get("/albums", response_model=list[AlbumManifest])
 def get_albums() -> list[AlbumManifest]:
     return list_albums(get_config().root)
+
+
+@router.get("/albums/{album_id}", response_model=AlbumManifest)
+def get_album(album_id: str) -> AlbumManifest:
+    try:
+        return get_album_from_library(get_config().root, album_id)
+    except FileNotFoundError as e:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e)) from e
 
 
 @router.post(

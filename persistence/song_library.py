@@ -162,9 +162,7 @@ def register_song_project(
     storage = load_storage_manifest(root)
 
     if parent_manifest is not None and parent_path is not None:
-        parent_storage_path = (
-            parent_path.relative_to(root) / relative_path
-        ).as_posix()
+        parent_storage_path = (parent_path.relative_to(root) / relative_path).as_posix()
         parent_asset = next(
             (
                 candidate
@@ -182,9 +180,7 @@ def register_song_project(
 
         asset = parent_asset.model_copy(deep=True)
     else:
-        storage_relative_path = (
-            song_path.relative_to(root) / relative_path
-        ).as_posix()
+        storage_relative_path = (song_path.relative_to(root) / relative_path).as_posix()
         asset = Asset(
             id=f"asset_{uuid4()}",
             kind=AssetKind.PROJECT,
