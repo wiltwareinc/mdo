@@ -16,6 +16,7 @@ from typing import Any
 import pytest
 from fastapi.testclient import TestClient
 
+from app.config import get_config
 from app.deps import get_file_manager
 from app.main import app
 from models.file_manager import FileManager
@@ -25,7 +26,7 @@ from persistence.storage import initialize_storage
 @pytest.fixture
 def music_root(tmp_path: Path) -> Path:
     """Return a new, empty MDO library for one test."""
-    root = tmp_path / "music"
+    root = tmp_path / "_pytest_mdo_music"
     (root / "songs").mkdir(parents=True)
     (root / "albums").mkdir()
     _ = initialize_storage(root, "Test Music Library")
@@ -70,7 +71,7 @@ def config_path(tmp_path: Path, music_root: Path) -> Path:
     return path
 
 
-@pytest.fixture
+@pytest.fixture(autouse=True)
 def configured_environment(
     monkeypatch: pytest.MonkeyPatch,
     music_root: Path,
@@ -79,6 +80,13 @@ def configured_environment(
     """Point MDO at temporary test data and clear its cached FileManager."""
     monkeypatch.setenv("MDO_ROOT", str(music_root))
     monkeypatch.setenv("MDO_CONFIG", str(config_path))
+
+    resolved_root = get_config().root
+    if resolved_root != music_root.resolve():
+        raise RuntimeError(
+            f"Refusing to run tests outside temporary root: {resolved_root}"
+        )
+
     get_file_manager.cache_clear()
     yield
     get_file_manager.cache_clear()
@@ -96,8 +104,15 @@ def file_manager(
 @pytest.fixture
 def api_client(
     configured_environment: None,  # pyright: ignore[reportUnusedParameter]
+    music_root: Path,
 ) -> Iterator[TestClient]:
     """Return an in-process FastAPI client using the temporary library."""
+    resolved_root = get_config().root
+    if resolved_root != music_root.resolve():
+        raise RuntimeError(
+            f"Refusing to create API client outside temporary root: {resolved_root}"
+        )
+
     with TestClient(app) as client:
         yield client
 
