@@ -1,6 +1,7 @@
 # wiltware 2026
 # new song creation/edit file management
 
+from email.policy import default
 import shutil
 from datetime import datetime
 from pathlib import Path
@@ -216,4 +217,63 @@ def register_song_project(
 
     _ = write_song_manifest(song_path, validated_manifest)
 
+    return validated_manifest
+
+def update_song_metadata(
+    root: Path,
+    song_id: str,
+    title: str | None = None,
+    description: str | None = None,
+    tags: list[str] | None = None,
+    default_project_id: str | None = None,
+) -> SongManifest:
+    # grab manifest
+    songs_root = root / "songs"
+    song_path: Path | None = None
+    song_manifest: SongManifest | None = None
+    is_default_real: bool = False
+    for song in songs_root.iterdir():
+        if not song.is_dir():
+            continue
+
+        md = song / ".metadata.json"
+        if not md.exists():
+            continue
+
+        manifest = load_song_manifest(song)
+        if manifest.id == song_id:
+            song_path = song
+            song_manifest = manifest
+
+        if default_project_id is not None: # yes this is stupid
+            if manifest.id == default_project_id:
+                is_default_real = True
+            if is_default_real and song_path is not None:
+                break
+        else: # UGLY!!!
+            if song_path is not None:
+                break
+
+    if song_path is None or song_manifest is None:
+        raise FileNotFoundError(f"song not found: {song_id}")
+
+
+    if title is None and description is None and tags is None and default_project_id is None:
+        return song_manifest
+
+    if title is not None:
+        song_manifest.title = title
+    if description is not None:
+        song_manifest.description = description
+    if tags is not None:
+        song_manifest.tags = tags
+    if default_project_id is not None:
+        song_manifest.default_project_id = default_project_id
+
+    # write updated manifest
+    song_manifest.updated_at = datetime.now().astimezone()
+    validated_manifest = SongManifest.model_validate(
+        song_manifest.model_dump(mode="python")
+    )
+    _ = write_song_manifest(song_path, validated_manifest)
     return validated_manifest

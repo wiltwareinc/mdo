@@ -41,7 +41,7 @@ def create_album(root: Path, title: str, song_ids: list[str]) -> AlbumManifest:
     if missing_song_ids:
         raise FileNotFoundError(f"Songs not found: {missing_song_ids}")
 
-    
+
     path = root / "albums" / name
     if path.exists():
         raise FileExistsError(f"Album already exists: {path}")
@@ -375,3 +375,48 @@ def get_album(root: Path, album_id: str) -> AlbumManifest:
             return manifest
 
     raise FileNotFoundError(f"Album not found: {album_id}")
+
+def update_album_metadata(
+    root: Path, album_id: str, 
+    title: str | None = None,
+    description: str | None = None,
+    tags: list[str] | None = None, # probably will not implement rn
+) -> AlbumManifest:
+    # grab manifest
+    albums_root = root / "albums"
+    album_path: Path | None = None
+    album_manifest: AlbumManifest | None = None
+    for album in albums_root.iterdir():
+        if not album.is_dir():
+            continue
+
+        md = album / ".metadata.json"
+        if not md.exists():
+            continue
+
+        manifest = load_album_manifest(album)
+        if manifest.id == album_id:
+            album_path = album
+            album_manifest = manifest
+            break
+
+    if album_path is None or album_manifest is None:
+        raise FileNotFoundError(f"Album not found: {album_id}")
+
+    if title is None and description is None and tags is None:
+        return album_manifest
+
+    if title is not None:
+        album_manifest.title = title
+    if description is not None:
+        album_manifest.description = description
+    if tags is not None:
+        album_manifest.tags = tags
+
+    # write updated manifest
+    album_manifest.updated_at = datetime.now().astimezone()
+    validated_manifest = AlbumManifest.model_validate(
+        album_manifest.model_dump(mode="python")
+    )
+    _ = write_album_manifest(album_path, validated_manifest)
+    return validated_manifest
