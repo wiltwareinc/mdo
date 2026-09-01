@@ -4,6 +4,7 @@
 import shutil
 from datetime import datetime
 from pathlib import Path
+from typing import TypedDict
 from uuid import uuid4
 
 from domain.manifests import (
@@ -24,23 +25,37 @@ from persistence.song_library import list_songs
 from persistence.storage import load_storage_manifest
 
 
+class AlbumMetadataChanges(TypedDict, total=False):
+    title: str
+    description: str | None
+    tags: list[str]
+
+
+def _validate_return_manifest(
+    manifest: AlbumManifest, album_path: Path
+) -> AlbumManifest:
+    manifest.updated_at = datetime.now().astimezone()
+
+    validated_manifest = AlbumManifest.model_validate(
+        manifest.model_dump(mode="python")
+    )
+
+    _ = write_album_manifest(album_path, validated_manifest)
+
+    return validated_manifest
+
+
 def create_album(root: Path, title: str, song_ids: list[str]) -> AlbumManifest:
     date = datetime.now().astimezone().strftime("%Y%m%d")
     name = f"{date}_{title}"
 
     # verify all songs exist in ids
-    available_song_ids = {
-        manifest.id
-        for manifest in list_songs(root)
-    }
+    available_song_ids = {manifest.id for manifest in list_songs(root)}
     missing_song_ids = [
-        song_id
-        for song_id in song_ids
-        if song_id not in available_song_ids
+        song_id for song_id in song_ids if song_id not in available_song_ids
     ]
     if missing_song_ids:
         raise FileNotFoundError(f"Songs not found: {missing_song_ids}")
-
 
     path = root / "albums" / name
     if path.exists():
@@ -359,7 +374,7 @@ def remove_album_entry(
     return validated_manifest
 
 
-def get_album(root: Path, album_id: str) -> AlbumManifest:
+def _find_album(root: Path, album_id: str) -> tuple[AlbumManifest, Path]:
     albums_root = root / "albums"
 
     for album_path in albums_root.iterdir():
@@ -372,51 +387,51 @@ def get_album(root: Path, album_id: str) -> AlbumManifest:
 
         manifest = load_album_manifest(album_path)
         if manifest.id == album_id:
-            return manifest
+            return manifest, album_path
 
     raise FileNotFoundError(f"Album not found: {album_id}")
 
+
+def get_album(root: Path, album_id: str) -> AlbumManifest:
+    manifest, _ = _find_album(root, album_id)
+    return manifest
+
+
 def update_album_metadata(
-    root: Path, album_id: str, 
-    title: str | None = None,
-    description: str | None = None,
-    tags: list[str] | None = None, # probably will not implement rn
+    root: Path, album_id: str, changes: AlbumMetadataChanges
 ) -> AlbumManifest:
-    # grab manifest
-    albums_root = root / "albums"
-    album_path: Path | None = None
-    album_manifest: AlbumManifest | None = None
-    for album in albums_root.iterdir():
-        if not album.is_dir():
-            continue
+    """Update the metadata of an album.
 
-        md = album / ".metadata.json"
-        if not md.exists():
-            continue
+    Args:
+        root: The root directory of the album library.
+        album_id: The ID of the album to update.
+        changes: A dictionary of metadata changes to apply:
+            - title
+            - description
+            - tags
 
-        manifest = load_album_manifest(album)
-        if manifest.id == album_id:
-            album_path = album
-            album_manifest = manifest
-            break
+    Returns:
+        The updated album manifest.
+    """
+    manifest, album_path = _find_album(root, album_id)
 
-    if album_path is None or album_manifest is None:
-        raise FileNotFoundError(f"Album not found: {album_id}")
+    # see song_library.py as to why we need this
+    allowed_fields = {"title", "description", "tags"}
 
-    if title is None and description is None and tags is None:
-        return album_manifest
+    unexpected_fields = changes.keys() - allowed_fields
+    if unexpected_fields:
+        raise ValueError(f"Unexpected fields: {unexpected_fields}")
 
-    if title is not None:
-        album_manifest.title = title
-    if description is not None:
-        album_manifest.description = description
-    if tags is not None:
-        album_manifest.tags = tags
+    if not changes:
+        return manifest
 
-    # write updated manifest
-    album_manifest.updated_at = datetime.now().astimezone()
-    validated_manifest = AlbumManifest.model_validate(
-        album_manifest.model_dump(mode="python")
-    )
-    _ = write_album_manifest(album_path, validated_manifest)
-    return validated_manifest
+    if "title" in changes:
+        manifest.title = changes["title"]
+    if "description" in changes:
+        manifest.description = changes["description"]
+    if "tags" in changes:
+        manifest.tags = changes["tags"]
+
+    # validate manifest
+
+    return _validate_return_manifest(manifest, album_path)

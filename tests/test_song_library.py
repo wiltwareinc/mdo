@@ -7,6 +7,8 @@ manifest write. Project-registration tests verify storage-relative locations,
 default selection, optional defaults, missing targets, path safety, and
 persistence failure behavior. Shared-project tests verify that multiple songs
 reuse one asset identity and location without creating duplicate references.
+Metadata-update tests cover partial edits, explicit null clearing, validation,
+stable directories, and persistence.
 
 Authored by OpenAI Codex on 2026-08-25.
 """
@@ -21,7 +23,12 @@ from pydantic import ValidationError
 from domain.manifests import AssetKind, AssetPurpose, SongManifest
 from persistence import song_library
 from persistence.manifests import load_song_manifest
-from persistence.song_library import create_song, list_songs, register_song_project
+from persistence.song_library import (
+    create_song,
+    list_songs,
+    register_song_project,
+    update_song_metadata,
+)
 from persistence.storage import initialize_storage, load_storage_manifest
 
 
@@ -302,3 +309,95 @@ def test_register_song_project_write_failure_preserves_original_manifest(
         )
 
     assert load_song_manifest(song_root) == original
+
+
+def test_update_song_metadata_applies_partial_changes_and_persists(
+    library_root: Path,
+) -> None:
+    original = create_song(library_root, "Original Song Title")
+    song_root = next((library_root / "songs").iterdir())
+
+    updated = update_song_metadata(
+        library_root,
+        original.id,
+        {
+            "title": "Updated Song Title",
+            "description": "New description",
+            "tags": ["connected", "electronic"],
+        },
+    )
+
+    assert updated.title == "Updated Song Title"
+    assert updated.description == "New description"
+    assert updated.tags == ["connected", "electronic"]
+    assert song_root.name.endswith("Original Song Title")
+    assert updated.created_at == original.created_at
+    assert updated.updated_at >= original.updated_at
+    assert load_song_manifest(song_root) == updated
+
+
+def test_update_song_metadata_can_clear_nullable_fields(
+    library_root: Path,
+) -> None:
+    original = create_song(library_root, "Clearable Song")
+    song_root = next((library_root / "songs").iterdir())
+    (song_root / "projects" / "default.rpp").write_text(
+        "REAPER_PROJECT",
+        encoding="utf-8",
+    )
+    registered = register_song_project(
+        library_root,
+        original.id,
+        "Default Session",
+        "projects/default.rpp",
+    )
+    described = update_song_metadata(
+        library_root,
+        original.id,
+        {"description": "Temporary description"},
+    )
+    assert described.default_project_id == registered.default_project_id
+
+    cleared = update_song_metadata(
+        library_root,
+        original.id,
+        {"description": None, "default_project_id": None},
+    )
+
+    assert cleared.description is None
+    assert cleared.default_project_id is None
+    assert cleared.assets == registered.assets
+    assert load_song_manifest(song_root) == cleared
+
+
+def test_update_song_metadata_rejects_unknown_default_without_writing(
+    library_root: Path,
+) -> None:
+    original = create_song(library_root, "Invalid Default Song")
+    song_root = next((library_root / "songs").iterdir())
+
+    with pytest.raises(ValidationError, match="must reference an asset"):
+        update_song_metadata(
+            library_root,
+            original.id,
+            {"default_project_id": "asset_00000000-0000-4000-8000-000000000000"},
+        )
+
+    assert load_song_manifest(song_root) == original
+
+
+def test_update_song_metadata_empty_changes_leave_manifest_unchanged(
+    library_root: Path,
+) -> None:
+    original = create_song(library_root, "Unchanged Song")
+
+    assert update_song_metadata(library_root, original.id, {}) == original
+
+
+def test_update_song_metadata_rejects_unknown_song(library_root: Path) -> None:
+    with pytest.raises(FileNotFoundError, match="Song not found"):
+        update_song_metadata(
+            library_root,
+            "song_00000000-0000-4000-8000-000000000000",
+            {"title": "Missing"},
+        )

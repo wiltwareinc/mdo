@@ -7,7 +7,8 @@ album-session asset across multiple track entries. Entry tests cover default
 and explicit sequences, exact insertion positions, invalid targets, and disk
 persistence, plus reordering and removal without regenerating stable IDs.
 Album creation tests also verify that every initial track references a song
-that is actually present in the library.
+that is actually present in the library. Metadata-update tests cover partial
+edits, explicit null clearing, stable directories, and persistence.
 
 Authored by OpenAI Codex on 2026-08-26.
 """
@@ -27,6 +28,7 @@ from persistence.album_library import (
     register_album_session,
     remove_album_entry,
     reorder_album_entry,
+    update_album_metadata,
 )
 from persistence.manifests import (
     load_album_manifest,
@@ -516,3 +518,68 @@ def test_album_entry_mutation_rejects_unknown_entry_without_writing(
             operation(library_root, original.id, unknown_entry_id)
 
     assert load_album_manifest(album_root) == original
+
+
+def test_update_album_metadata_applies_partial_changes_and_persists(
+    library_root: Path,
+) -> None:
+    original = create_album(library_root, "Original Album Title", SONG_IDS)
+    album_root = next((library_root / "albums").iterdir())
+
+    updated = update_album_metadata(
+        library_root,
+        original.id,
+        {
+            "title": "Updated Album Title",
+            "description": "Updated description",
+            "tags": ["album", "continuous"],
+        },
+    )
+
+    assert updated.title == "Updated Album Title"
+    assert updated.description == "Updated description"
+    assert updated.tags == ["album", "continuous"]
+    assert album_root.name.endswith("Original Album Title")
+    assert updated.created_at == original.created_at
+    assert updated.updated_at >= original.updated_at
+    assert updated.sequences == original.sequences
+    assert load_album_manifest(album_root) == updated
+
+
+def test_update_album_metadata_can_clear_description(
+    library_root: Path,
+) -> None:
+    original = create_album(library_root, "Clearable Album", SONG_IDS)
+    described = update_album_metadata(
+        library_root,
+        original.id,
+        {"description": "Temporary description"},
+    )
+
+    cleared = update_album_metadata(
+        library_root,
+        original.id,
+        {"description": None},
+    )
+
+    assert described.description == "Temporary description"
+    assert cleared.description is None
+    album_root = next((library_root / "albums").iterdir())
+    assert load_album_manifest(album_root) == cleared
+
+
+def test_update_album_metadata_empty_changes_leave_manifest_unchanged(
+    library_root: Path,
+) -> None:
+    original = create_album(library_root, "Unchanged Album", SONG_IDS)
+
+    assert update_album_metadata(library_root, original.id, {}) == original
+
+
+def test_update_album_metadata_rejects_unknown_album(library_root: Path) -> None:
+    with pytest.raises(FileNotFoundError, match="Album not found"):
+        update_album_metadata(
+            library_root,
+            "album_00000000-0000-4000-8000-000000000000",
+            {"title": "Missing"},
+        )

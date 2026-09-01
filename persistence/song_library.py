@@ -1,10 +1,10 @@
 # wiltware 2026
 # new song creation/edit file management
 
-from email.policy import default
 import shutil
 from datetime import datetime
 from pathlib import Path
+from typing import TypedDict
 from uuid import uuid4
 
 from domain.manifests import Asset, AssetKind, AssetLocation, AssetPurpose, SongManifest
@@ -15,6 +15,14 @@ from persistence.manifests import (
 )
 from persistence.storage import load_storage_manifest
 
+def _validate_return_manifest(manifest: SongManifest, song_path: Path) -> SongManifest:
+    manifest.updated_at = datetime.now().astimezone()
+
+    validated_manifest = SongManifest.model_validate(manifest.model_dump(mode="python"))
+
+    _ = write_song_manifest(song_path, validated_manifest)
+
+    return validated_manifest
 
 def create_song(root: Path, title: str) -> SongManifest:
     date = datetime.now().astimezone().strftime("%Y%m%d")
@@ -56,7 +64,7 @@ def list_songs(root: Path) -> list[SongManifest]:
     return songs
 
 
-def get_song(root: Path, song_id: str) -> SongManifest:
+def _find_song(root: Path, song_id: str) -> tuple[SongManifest, Path]:
     songs_root = root / "songs"
 
     for song_path in songs_root.iterdir():
@@ -69,9 +77,14 @@ def get_song(root: Path, song_id: str) -> SongManifest:
 
         manifest = load_song_manifest(song_path)
         if manifest.id == song_id:
-            return manifest
+            return manifest, song_path
 
     raise FileNotFoundError(f"Song not found: {song_id}")
+
+
+def get_song(root: Path, song_id: str) -> SongManifest:
+    manifest, _ = _find_song(root, song_id)
+    return manifest
 
 
 def register_song_project(
@@ -219,61 +232,60 @@ def register_song_project(
 
     return validated_manifest
 
+class SongMetaDataChanges(TypedDict, total=False):
+    title: str
+    description: str | None
+    tags: list[str]
+    default_project_id: str | None
+
+
 def update_song_metadata(
     root: Path,
     song_id: str,
-    title: str | None = None,
-    description: str | None = None,
-    tags: list[str] | None = None,
-    default_project_id: str | None = None,
+    changes: SongMetaDataChanges
 ) -> SongManifest:
-    # grab manifest
-    songs_root = root / "songs"
-    song_path: Path | None = None
-    song_manifest: SongManifest | None = None
-    is_default_real: bool = False
-    for song in songs_root.iterdir():
-        if not song.is_dir():
-            continue
+    """Updates the metadata for a given song.
 
-        md = song / ".metadata.json"
-        if not md.exists():
-            continue
+    Args:
+        root: Given root of the storage media
+        song_id: UUID of the given song
+        changes: Dictionary of allowed changes:
+            - title
+            - description
+            - tags
+            - default_project_id
 
-        manifest = load_song_manifest(song)
-        if manifest.id == song_id:
-            song_path = song
-            song_manifest = manifest
+    Returns:
+        Updated SongManifest
+    """
+    # find song
+    manifest, song_path = _find_song(root, song_id)
 
-        if default_project_id is not None: # yes this is stupid
-            if manifest.id == default_project_id:
-                is_default_real = True
-            if is_default_real and song_path is not None:
-                break
-        else: # UGLY!!!
-            if song_path is not None:
-                break
+    # supposedly, because this is coming from the API, we need a dynamic
+    # checker to ensure that the unexpected fields are good
+    allowed_fields = {
+        "title",
+        "description",
+        "tags",
+        "default_project_id"
+    }
 
-    if song_path is None or song_manifest is None:
-        raise FileNotFoundError(f"song not found: {song_id}")
+    unexpected_fields = changes.keys() - allowed_fields
+    if unexpected_fields:
+        raise ValueError(f"Unexpected fields: {unexpected_fields}")
 
+    if not changes:
+        return manifest
 
-    if title is None and description is None and tags is None and default_project_id is None:
-        return song_manifest
+    if "title" in changes:
+        manifest.title = changes["title"]
+    if "description" in changes:
+        manifest.description = changes["description"]
+    if "tags" in changes:
+        manifest.tags = changes["tags"]
+    if "default_project_id" in changes:
+        manifest.default_project_id = changes["default_project_id"]
 
-    if title is not None:
-        song_manifest.title = title
-    if description is not None:
-        song_manifest.description = description
-    if tags is not None:
-        song_manifest.tags = tags
-    if default_project_id is not None:
-        song_manifest.default_project_id = default_project_id
+    # validate manifest
 
-    # write updated manifest
-    song_manifest.updated_at = datetime.now().astimezone()
-    validated_manifest = SongManifest.model_validate(
-        song_manifest.model_dump(mode="python")
-    )
-    _ = write_song_manifest(song_path, validated_manifest)
-    return validated_manifest
+    return _validate_return_manifest(manifest, song_path)

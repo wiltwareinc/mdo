@@ -2,23 +2,27 @@
 # updated api for new metadata system
 
 
+from typing import cast
+
 from fastapi import APIRouter, HTTPException, status
 from pydantic import BaseModel
 
 from app.config import get_config
 from domain.manifests import AlbumManifest, SongManifest, StorageManifest
 from persistence.album_library import (
+    AlbumMetadataChanges,
     add_album_entry,
     create_album,
     list_albums,
     register_album_session,
     remove_album_entry,
     reorder_album_entry,
+    update_album_metadata,
 )
 from persistence.album_library import (
     get_album as get_album_from_library,
 )
-from persistence.song_library import create_song, list_songs, register_song_project
+from persistence.song_library import SongMetaDataChanges, create_song, list_songs, register_song_project, update_song_metadata
 from persistence.song_library import get_song as get_song_from_library
 from persistence.storage import initialize_storage, load_storage_manifest
 
@@ -28,6 +32,11 @@ router = APIRouter(prefix="/v2")
 class SongCreateV2(BaseModel):
     title: str
 
+class SongUpdateV2(BaseModel):
+    title: str | None = None
+    description: str | None = None
+    tags: list[str] | None = None
+    default_project_id: str | None = None
 
 class ProjectCreateV2(BaseModel):
     title: str
@@ -46,6 +55,10 @@ class AlbumSessionCreateV2(BaseModel):
     relative_path: str
     entry_ids: list[str]
 
+class AlbumUpdateV2(BaseModel):
+    title: str | None = None
+    description: str | None = None
+    tags: list[str] | None = None
 
 class AlbumEntryCreateV2(BaseModel):
     song_id: str
@@ -252,3 +265,58 @@ def get_storage() -> StorageManifest:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND, detail="Storage not initialized"
         ) from e
+
+@router.patch(
+    "/songs/{song_id}",
+    response_model=SongManifest,
+)
+def patch_song_metadata(
+    song_id: str,
+    payload: SongUpdateV2
+) -> SongManifest:
+    try:
+        changes = cast(
+            SongMetaDataChanges,
+            cast(
+                object,
+                payload.model_dump(exclude_unset=True)
+            )
+        )
+        return update_song_metadata(
+            root=get_config().root,
+            song_id=song_id,
+            changes=changes
+        )
+    except FileNotFoundError as e:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e)) from e
+    except ValueError as e:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e)) from e
+
+@router.patch("/albums/{album_id}", response_model=AlbumManifest)
+def patch_album(
+    album_id: str,
+    payload: AlbumUpdateV2,
+) -> AlbumManifest:
+    try:
+        changes = cast(
+            AlbumMetadataChanges,
+            cast(
+                object,
+                payload.model_dump(exclude_unset=True)
+            )
+        )
+        return update_album_metadata(
+            root=get_config().root,
+            album_id=album_id,
+            changes=changes
+        )
+    except FileNotFoundError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=str(exc),
+        ) from exc
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(exc),
+        ) from exc

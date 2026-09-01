@@ -9,6 +9,8 @@ reordering and removal through HTTP without losing persistence. Song-project
 tests cover registration, default selection, persistence, and HTTP errors.
 Song retrieval tests cover successful lookup, unknown IDs, and persisted
 project information returned by a later request.
+Metadata PATCH tests cover partial edits, explicit null clearing, persistence,
+invalid project references, and unknown entity IDs.
 
 Authored by OpenAI Codex on 2026-08-25.
 """
@@ -111,6 +113,89 @@ def test_v2_get_song_includes_persisted_project(
     assert fetched.default_project_id == fetched.assets[0].id
 
 
+def test_v2_patch_song_updates_metadata_and_persists(
+    api_client: TestClient,
+    music_root: Path,
+) -> None:
+    song = api_client.post("/v2/songs", json={"title": "Original API Song"}).json()
+    song_root = next((music_root / "songs").iterdir())
+
+    response = api_client.patch(
+        f"/v2/songs/{song['id']}",
+        json={
+            "title": "Updated API Song",
+            "description": "Updated through HTTP",
+            "tags": ["api", "edited"],
+        },
+    )
+
+    assert response.status_code == 200
+    updated = SongManifest.model_validate(response.json())
+    assert updated.title == "Updated API Song"
+    assert updated.description == "Updated through HTTP"
+    assert updated.tags == ["api", "edited"]
+    assert song_root.name.endswith("Original API Song")
+    assert load_song_manifest(song_root) == updated
+
+
+def test_v2_patch_song_can_clear_description_and_default_project(
+    api_client: TestClient,
+    music_root: Path,
+) -> None:
+    song = api_client.post("/v2/songs", json={"title": "Clearable API Song"}).json()
+    song_root = next((music_root / "songs").iterdir())
+    (song_root / "projects" / "default.rpp").write_text(
+        "REAPER_PROJECT",
+        encoding="utf-8",
+    )
+    registered = api_client.post(
+        f"/v2/songs/{song['id']}/projects",
+        json={"title": "Default", "relative_path": "projects/default.rpp"},
+    )
+    assert registered.status_code == 201
+    described = api_client.patch(
+        f"/v2/songs/{song['id']}",
+        json={"description": "Temporary"},
+    )
+    assert described.status_code == 200
+
+    response = api_client.patch(
+        f"/v2/songs/{song['id']}",
+        json={"description": None, "default_project_id": None},
+    )
+
+    assert response.status_code == 200
+    updated = SongManifest.model_validate(response.json())
+    assert updated.description is None
+    assert updated.default_project_id is None
+    assert len(updated.assets) == 1
+    assert load_song_manifest(song_root) == updated
+
+
+def test_v2_patch_song_returns_400_for_unknown_default_project(
+    api_client: TestClient,
+) -> None:
+    song = api_client.post("/v2/songs", json={"title": "Invalid Default API"}).json()
+
+    response = api_client.patch(
+        f"/v2/songs/{song['id']}",
+        json={"default_project_id": "asset_00000000-0000-4000-8000-000000000000"},
+    )
+
+    assert response.status_code == 400
+    assert "must reference an asset" in response.json()["detail"]
+
+
+def test_v2_patch_song_returns_404_for_unknown_song(api_client: TestClient) -> None:
+    response = api_client.patch(
+        "/v2/songs/song_00000000-0000-4000-8000-000000000000",
+        json={"title": "Missing"},
+    )
+
+    assert response.status_code == 404
+    assert "Song not found" in response.json()["detail"]
+
+
 def test_v2_duplicate_song_returns_conflict(api_client: TestClient) -> None:
     first_response = api_client.post(
         "/v2/songs",
@@ -208,6 +293,64 @@ def test_v2_get_album_returns_created_manifest(api_client: TestClient) -> None:
 def test_v2_get_album_returns_404_for_unknown_album(api_client: TestClient) -> None:
     response = api_client.get(
         "/v2/albums/album_00000000-0000-4000-8000-000000000000"
+    )
+
+    assert response.status_code == 404
+    assert "Album not found" in response.json()["detail"]
+
+
+def test_v2_patch_album_updates_metadata_and_persists(
+    api_client: TestClient,
+    music_root: Path,
+) -> None:
+    album = api_client.post(
+        "/v2/albums",
+        json={"title": "Original API Album", "song_ids": []},
+    ).json()
+    album_root = next((music_root / "albums").iterdir())
+
+    response = api_client.patch(
+        f"/v2/albums/{album['id']}",
+        json={
+            "title": "Updated API Album",
+            "description": "Updated album description",
+            "tags": ["api", "album"],
+        },
+    )
+
+    assert response.status_code == 200
+    updated = AlbumManifest.model_validate(response.json())
+    assert updated.title == "Updated API Album"
+    assert updated.description == "Updated album description"
+    assert updated.tags == ["api", "album"]
+    assert album_root.name.endswith("Original API Album")
+    assert load_album_manifest(album_root) == updated
+
+
+def test_v2_patch_album_can_clear_description(api_client: TestClient) -> None:
+    album = api_client.post(
+        "/v2/albums",
+        json={"title": "Clearable API Album", "song_ids": []},
+    ).json()
+    described = api_client.patch(
+        f"/v2/albums/{album['id']}",
+        json={"description": "Temporary"},
+    )
+    assert described.status_code == 200
+
+    response = api_client.patch(
+        f"/v2/albums/{album['id']}",
+        json={"description": None},
+    )
+
+    assert response.status_code == 200
+    assert response.json()["description"] is None
+
+
+def test_v2_patch_album_returns_404_for_unknown_album(api_client: TestClient) -> None:
+    response = api_client.patch(
+        "/v2/albums/album_00000000-0000-4000-8000-000000000000",
+        json={"title": "Missing"},
     )
 
     assert response.status_code == 404
