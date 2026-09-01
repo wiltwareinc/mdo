@@ -7,7 +7,8 @@ album-session asset across multiple track entries. Entry tests cover default
 and explicit sequences, exact insertion positions, invalid targets, and disk
 persistence, plus reordering and removal without regenerating stable IDs.
 Album creation tests also verify that every initial track references a song
-that is actually present in the library. Metadata-update tests cover partial
+that is actually present in the library and that unsafe title characters
+cannot alter the library layout. Metadata-update tests cover partial
 edits, explicit null clearing, stable directories, and persistence.
 
 Authored by OpenAI Codex on 2026-08-26.
@@ -147,6 +148,29 @@ def test_create_album_rejects_duplicate_directory(library_root: Path) -> None:
     assert len(list((library_root / "albums").iterdir())) == 1
 
 
+def test_create_album_sanitizes_directory_name_and_preserves_title(
+    library_root: Path,
+) -> None:
+    title = "../Side A/B: Finale?"
+
+    manifest = create_album(library_root, title, SONG_IDS)
+
+    album_directories = list((library_root / "albums").iterdir())
+    assert len(album_directories) == 1
+    assert album_directories[0].name.endswith("-Side A-B- Finale-")
+    assert manifest.title == title
+    assert not (library_root / "Side A").exists()
+
+
+def test_create_album_rejects_title_without_usable_filename_characters(
+    library_root: Path,
+) -> None:
+    with pytest.raises(ValueError, match="usable filename characters"):
+        create_album(library_root, "/\\:*?", SONG_IDS)
+
+    assert list((library_root / "albums").iterdir()) == []
+
+
 def test_failed_manifest_write_removes_partial_album_directory(
     library_root: Path,
     monkeypatch: pytest.MonkeyPatch,
@@ -166,6 +190,8 @@ def test_register_album_session_shares_one_asset_across_entries(
     library_root: Path,
 ) -> None:
     original = create_album(library_root, "Connected Album", SONG_IDS)
+    album_root = next((library_root / "albums").iterdir())
+    (album_root / "projects" / "continuous-album.rpp").touch()
     entry_ids = [entry.id for entry in original.sequences[0].entries]
 
     updated = register_album_session(
@@ -187,7 +213,6 @@ def test_register_album_session_shares_one_asset_across_entries(
         session.id
     }
 
-    album_root = next((library_root / "albums").iterdir())
     assert (
         session.location.path
         == (
@@ -204,6 +229,10 @@ def test_register_album_session_finds_album_after_other_albums(
     create_album(library_root, "A Unrelated Album", [])
     target = create_album(library_root, "Z Target Album", SONG_IDS)
     albums_root = library_root / "albums"
+    target_root = next(
+        path for path in albums_root.iterdir() if "Z Target Album" in path.name
+    )
+    (target_root / "projects" / "target.rpp").touch()
     original_iterdir = Path.iterdir
 
     def ordered_iterdir(path: Path):
@@ -223,6 +252,85 @@ def test_register_album_session_finds_album_after_other_albums(
     )
 
     assert updated.id == target.id
+
+
+def test_register_album_session_defaults_to_primary_sequence_entries(
+    library_root: Path,
+) -> None:
+    original = create_album(library_root, "Default Session Album", SONG_IDS)
+    album_root = next((library_root / "albums").iterdir())
+    (album_root / "projects" / "default.rpp").touch()
+
+    updated = register_album_session(
+        library_root,
+        original.id,
+        "Default Session",
+        "projects/default.rpp",
+    )
+
+    session = updated.assets[0]
+    assert {
+        entry.album_asset_id for entry in updated.sequences[0].entries
+    } == {session.id}
+
+
+def test_register_album_session_allows_an_unassigned_asset(
+    library_root: Path,
+) -> None:
+    original = create_album(library_root, "Unassigned Session Album", SONG_IDS)
+    album_root = next((library_root / "albums").iterdir())
+    (album_root / "projects" / "unassigned.rpp").touch()
+
+    updated = register_album_session(
+        library_root,
+        original.id,
+        "Unassigned Session",
+        "projects/unassigned.rpp",
+        [],
+    )
+
+    assert len(updated.assets) == 1
+    assert all(
+        entry.album_asset_id is None
+        for entry in updated.sequences[0].entries
+    )
+
+
+def test_register_album_session_rejects_a_missing_project_without_writing(
+    library_root: Path,
+) -> None:
+    original = create_album(library_root, "Missing Project Album", SONG_IDS)
+    album_root = next((library_root / "albums").iterdir())
+
+    with pytest.raises(FileNotFoundError, match="Project not found"):
+        register_album_session(
+            library_root,
+            original.id,
+            "Missing Session",
+            "projects/missing.rpp",
+            [],
+        )
+
+    assert load_album_manifest(album_root) == original
+
+
+def test_register_album_session_rejects_a_project_outside_projects(
+    library_root: Path,
+) -> None:
+    original = create_album(library_root, "Outside Project Album", SONG_IDS)
+    album_root = next((library_root / "albums").iterdir())
+    (album_root / "outside.rpp").touch()
+
+    with pytest.raises(ValueError, match="inside the album projects directory"):
+        register_album_session(
+            library_root,
+            original.id,
+            "Outside Session",
+            "outside.rpp",
+            [],
+        )
+
+    assert load_album_manifest(album_root) == original
 
 
 def test_register_album_session_reports_unknown_album(

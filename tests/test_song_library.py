@@ -3,7 +3,8 @@
 These tests verify that a new song returns its generated manifest, creates the
 expected directory layout, can be listed again, rejects duplicate directories,
 ignores unrelated entries, and does not leave a partial song after a failed
-manifest write. Project-registration tests verify storage-relative locations,
+manifest write. Directory tests verify unsafe title characters cannot alter
+the library layout. Project-registration tests verify storage-relative locations,
 default selection, optional defaults, missing targets, path safety, and
 persistence failure behavior. Shared-project tests verify that multiple songs
 reuse one asset identity and location without creating duplicate references.
@@ -20,10 +21,12 @@ from pathlib import Path
 import pytest
 from pydantic import ValidationError
 
-from domain.manifests import AssetKind, AssetPurpose, SongManifest
+from domain.manifests import Asset, AssetKind, AssetPurpose, SongManifest
 from persistence import song_library
-from persistence.manifests import load_song_manifest
+from persistence.album_library import create_album, register_album_session
+from persistence.manifests import load_song_manifest, write_song_manifest
 from persistence.song_library import (
+    assign_album_session_to_song,
     create_song,
     list_songs,
     register_song_project,
@@ -39,6 +42,26 @@ def library_root(tmp_path: Path) -> Path:
     (root / "songs").mkdir(parents=True)
     initialize_storage(root, "Song Test Library")
     return root
+
+
+@pytest.fixture
+def registered_album_session(
+    library_root: Path,
+) -> tuple[SongManifest, Asset, Path, Path]:
+    song = create_song(library_root, "Connected Song")
+    song_root = next((library_root / "songs").iterdir())
+    album = create_album(library_root, "Connected Album", [song.id])
+    album_root = next((library_root / "albums").iterdir())
+    project_path = album_root / "projects" / "connected.rpp"
+    project_path.touch()
+    registered = register_album_session(
+        library_root,
+        album.id,
+        "Connected Session",
+        "projects/connected.rpp",
+        [],
+    )
+    return song, registered.assets[0], song_root, project_path
 
 
 def test_create_song_returns_manifest_and_creates_layout(
@@ -87,6 +110,29 @@ def test_create_song_rejects_duplicate_directory(library_root: Path) -> None:
         create_song(library_root, "Duplicate Song")
 
     assert len(list((library_root / "songs").iterdir())) == 1
+
+
+def test_create_song_sanitizes_directory_name_and_preserves_title(
+    library_root: Path,
+) -> None:
+    title = "../Side A/B: Finale?"
+
+    manifest = create_song(library_root, title)
+
+    song_directories = list((library_root / "songs").iterdir())
+    assert len(song_directories) == 1
+    assert song_directories[0].name.endswith("-Side A-B- Finale-")
+    assert manifest.title == title
+    assert not (library_root / "Side A").exists()
+
+
+def test_create_song_rejects_title_without_usable_filename_characters(
+    library_root: Path,
+) -> None:
+    with pytest.raises(ValueError, match="usable filename characters"):
+        create_song(library_root, "/\\:*?")
+
+    assert list((library_root / "songs").iterdir()) == []
 
 
 def test_failed_manifest_write_removes_partial_song_directory(
@@ -309,6 +355,93 @@ def test_register_song_project_write_failure_preserves_original_manifest(
         )
 
     assert load_song_manifest(song_root) == original
+
+
+def test_assign_album_session_to_song_sets_default_and_persists(
+    library_root: Path,
+    registered_album_session: tuple[SongManifest, Asset, Path, Path],
+) -> None:
+    song, session, song_root, _ = registered_album_session
+
+    updated = assign_album_session_to_song(library_root, song.id, session.id)
+
+    assert updated.assets == [session]
+    assert updated.default_project_id == session.id
+    assert load_song_manifest(song_root) == updated
+
+
+def test_assign_album_session_to_song_can_leave_default_unchanged(
+    library_root: Path,
+    registered_album_session: tuple[SongManifest, Asset, Path, Path],
+) -> None:
+    song, session, _, _ = registered_album_session
+
+    updated = assign_album_session_to_song(
+        library_root,
+        song.id,
+        session.id,
+        make_default=False,
+    )
+
+    assert updated.assets == [session]
+    assert updated.default_project_id is None
+
+
+def test_assign_album_session_to_song_is_idempotent(
+    library_root: Path,
+    registered_album_session: tuple[SongManifest, Asset, Path, Path],
+) -> None:
+    song, session, _, _ = registered_album_session
+
+    assign_album_session_to_song(library_root, song.id, session.id)
+    repeated = assign_album_session_to_song(library_root, song.id, session.id)
+
+    assert repeated.assets == [session]
+    assert repeated.default_project_id == session.id
+
+
+def test_assign_album_session_to_song_rejects_unknown_asset_without_writing(
+    library_root: Path,
+    registered_album_session: tuple[SongManifest, Asset, Path, Path],
+) -> None:
+    song, _, song_root, _ = registered_album_session
+
+    with pytest.raises(FileNotFoundError, match="Album session not found"):
+        assign_album_session_to_song(
+            library_root,
+            song.id,
+            "asset_00000000-0000-4000-8000-000000000000",
+        )
+
+    assert load_song_manifest(song_root) == song
+
+
+def test_assign_album_session_to_song_rejects_missing_project_without_writing(
+    library_root: Path,
+    registered_album_session: tuple[SongManifest, Asset, Path, Path],
+) -> None:
+    song, session, song_root, project_path = registered_album_session
+    project_path.unlink()
+
+    with pytest.raises(FileNotFoundError, match="Project not found"):
+        assign_album_session_to_song(library_root, song.id, session.id)
+
+    assert load_song_manifest(song_root) == song
+
+
+def test_assign_album_session_to_song_rejects_conflicting_existing_asset(
+    library_root: Path,
+    registered_album_session: tuple[SongManifest, Asset, Path, Path],
+) -> None:
+    song, session, song_root, _ = registered_album_session
+    conflicting_asset = session.model_copy(update={"title": "Conflicting Session"})
+    song.assets.append(conflicting_asset)
+    write_song_manifest(song_root, song)
+
+    with pytest.raises(ValueError, match="conflicting metadata"):
+        assign_album_session_to_song(library_root, song.id, session.id)
+
+    assert load_song_manifest(song_root).assets == [conflicting_asset]
 
 
 def test_update_song_metadata_applies_partial_changes_and_persists(

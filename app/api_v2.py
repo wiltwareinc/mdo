@@ -22,7 +22,14 @@ from persistence.album_library import (
 from persistence.album_library import (
     get_album as get_album_from_library,
 )
-from persistence.song_library import SongMetaDataChanges, create_song, list_songs, register_song_project, update_song_metadata
+from persistence.song_library import (
+    SongMetaDataChanges,
+    assign_album_session_to_song,
+    create_song,
+    list_songs,
+    register_song_project,
+    update_song_metadata,
+)
 from persistence.song_library import get_song as get_song_from_library
 from persistence.storage import initialize_storage, load_storage_manifest
 
@@ -45,6 +52,11 @@ class ProjectCreateV2(BaseModel):
     make_default: bool = True
 
 
+class AlbumSessionAssignmentV2(BaseModel):
+    asset_id: str
+    make_default: bool = True
+
+
 class AlbumCreateV2(BaseModel):
     title: str
     song_ids: list[str]
@@ -53,7 +65,7 @@ class AlbumCreateV2(BaseModel):
 class AlbumSessionCreateV2(BaseModel):
     title: str
     relative_path: str
-    entry_ids: list[str]
+    entry_ids: list[str] | None = None
 
 class AlbumUpdateV2(BaseModel):
     title: str | None = None
@@ -90,6 +102,10 @@ def post_song(payload: SongCreateV2) -> SongManifest:
         return create_song(get_config().root, payload.title)
     except FileExistsError as e:
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(e)) from e
+    except ValueError as e:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST, detail=str(e)
+        ) from e
 
 
 @router.post(
@@ -111,6 +127,30 @@ def post_song_project(song_id: str, payload: ProjectCreateV2) -> SongManifest:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e)) from e
     except FileExistsError as e:
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(e)) from e
+    except ValueError as e:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST, detail=str(e)
+        ) from e
+
+
+@router.post(
+    "/songs/{song_id}/album-sessions",
+    response_model=SongManifest,
+    status_code=status.HTTP_201_CREATED,
+)
+def post_song_album_session(
+    song_id: str,
+    payload: AlbumSessionAssignmentV2,
+) -> SongManifest:
+    try:
+        return assign_album_session_to_song(
+            root=get_config().root,
+            song_id=song_id,
+            asset_id=payload.asset_id,
+            make_default=payload.make_default,
+        )
+    except FileNotFoundError as e:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e)) from e
     except ValueError as e:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST, detail=str(e)
@@ -153,6 +193,10 @@ def post_album(payload: AlbumCreateV2) -> AlbumManifest:
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(e)) from e
     except FileNotFoundError as e:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e)) from e
+    except ValueError as e:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST, detail=str(e)
+        ) from e
 
 
 @router.post(

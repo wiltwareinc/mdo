@@ -10,9 +10,11 @@ from uuid import uuid4
 from domain.manifests import Asset, AssetKind, AssetLocation, AssetPurpose, SongManifest
 from persistence.manifests import (
     create_song_manifest,
+    load_album_manifest,
     load_song_manifest,
     write_song_manifest,
 )
+from persistence.paths import safe_directory_component
 from persistence.storage import load_storage_manifest
 
 def _validate_return_manifest(manifest: SongManifest, song_path: Path) -> SongManifest:
@@ -26,7 +28,7 @@ def _validate_return_manifest(manifest: SongManifest, song_path: Path) -> SongMa
 
 def create_song(root: Path, title: str) -> SongManifest:
     date = datetime.now().astimezone().strftime("%Y%m%d")
-    name = f"{date}_{title}"
+    name = f"{date}_{safe_directory_component(title)}"
     # ensure that it current is valid within the root
     path = root / "songs" / name
     if path.exists():
@@ -287,5 +289,78 @@ def update_song_metadata(
         manifest.default_project_id = changes["default_project_id"]
 
     # validate manifest
+
+    return _validate_return_manifest(manifest, song_path)
+
+
+def assign_album_session_to_song(
+    root: Path,
+    song_id: str,
+    asset_id: str,
+    make_default: bool = True,
+) -> SongManifest:
+    manifest, song_path = _find_song(root, song_id)
+    session_asset: Asset | None = None
+
+    for album_path in (root / "albums").iterdir():
+        if not album_path.is_dir():
+            continue
+
+        metadata_path = album_path / ".metadata.json"
+        if not metadata_path.exists():
+            continue
+
+        album = load_album_manifest(album_path)
+
+        candidate = next(
+            (asset for asset in album.assets if asset.id == asset_id),
+            None,
+        )
+
+        if candidate is None:
+            continue
+
+        if session_asset is not None and session_asset != candidate:
+            raise ValueError(f"Asset ID has conflicting metadata: {asset_id}")
+
+        session_asset = candidate
+
+    if session_asset is None:
+        raise FileNotFoundError(f"Album session not found: {asset_id}")
+
+    if session_asset.kind != AssetKind.PROJECT:
+        raise ValueError("Album session must be a project asset")
+
+    if session_asset.purpose != AssetPurpose.ALBUM_SESSION:
+        raise ValueError("Asset must be an album session")
+
+    storage = load_storage_manifest(root)
+
+    if session_asset.location.storage_id != storage.id:
+        raise ValueError("Album session belongs to a different storage")
+
+    project_path = (root / session_asset.location.path).resolve()
+
+    if not project_path.is_relative_to(root.resolve()):
+        raise ValueError("Album session path must remain inside storage")
+
+    if not project_path.exists():
+        raise FileNotFoundError(f"Project not found: {project_path}")
+
+    existing_asset = next(
+        (asset for asset in manifest.assets if asset.id == session_asset.id),
+        None,
+    )
+
+    if existing_asset is None:
+        asset = session_asset.model_copy(deep=True)
+        manifest.assets.append(asset)
+    elif existing_asset != session_asset:
+        raise ValueError(f"Asset ID has conflicting metadata: {asset_id}")
+    else:
+        asset = existing_asset
+
+    if make_default:
+        manifest.default_project_id = asset.id
 
     return _validate_return_manifest(manifest, song_path)

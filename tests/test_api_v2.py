@@ -212,6 +212,15 @@ def test_v2_duplicate_song_returns_conflict(api_client: TestClient) -> None:
     assert "Song already exists" in duplicate_response.json()["detail"]
 
 
+def test_v2_create_song_rejects_unusable_directory_title(
+    api_client: TestClient,
+) -> None:
+    response = api_client.post("/v2/songs", json={"title": "/\\:*?"})
+
+    assert response.status_code == 400
+    assert "usable filename characters" in response.json()["detail"]
+
+
 def test_v2_album_list_starts_empty(api_client: TestClient) -> None:
     response = api_client.get("/v2/albums")
 
@@ -373,6 +382,18 @@ def test_v2_duplicate_album_returns_conflict(api_client: TestClient) -> None:
     assert "Album already exists" in duplicate_response.json()["detail"]
 
 
+def test_v2_create_album_rejects_unusable_directory_title(
+    api_client: TestClient,
+) -> None:
+    response = api_client.post(
+        "/v2/albums",
+        json={"title": "/\\:*?", "song_ids": []},
+    )
+
+    assert response.status_code == 400
+    assert "usable filename characters" in response.json()["detail"]
+
+
 def test_v2_register_album_session_shares_asset_across_entries(
     api_client: TestClient,
     music_root: Path,
@@ -387,6 +408,8 @@ def test_v2_register_album_session_shares_asset_across_entries(
         },
     ).json()
     entry_ids = [entry["id"] for entry in album["sequences"][0]["entries"]]
+    album_root = next((music_root / "albums").iterdir())
+    (album_root / "projects" / "continuous-album.rpp").touch()
 
     response = api_client.post(
         f"/v2/albums/{album['id']}/sessions",
@@ -404,7 +427,6 @@ def test_v2_register_album_session_shares_asset_across_entries(
     assert session["kind"] == "project"
     assert session["purpose"] == "album_session"
     storage = load_storage_manifest(music_root)
-    album_root = next((music_root / "albums").iterdir())
     assert session["location"]["storage_id"] == storage.id
     assert session["location"]["path"] == (
         album_root.relative_to(music_root) / "projects/continuous-album.rpp"
@@ -415,6 +437,39 @@ def test_v2_register_album_session_shares_asset_across_entries(
     } == {session["id"]}
 
 
+def test_v2_register_album_session_defaults_to_primary_sequence(
+    api_client: TestClient,
+    music_root: Path,
+) -> None:
+    first_song = api_client.post("/v2/songs", json={"title": "First Part"}).json()
+    second_song = api_client.post("/v2/songs", json={"title": "Second Part"}).json()
+    album = api_client.post(
+        "/v2/albums",
+        json={
+            "title": "Default Session Album",
+            "song_ids": [first_song["id"], second_song["id"]],
+        },
+    ).json()
+    album_root = next((music_root / "albums").iterdir())
+    (album_root / "projects" / "connected.rpp").touch()
+
+    response = api_client.post(
+        f"/v2/albums/{album['id']}/sessions",
+        json={
+            "title": "Connected Session",
+            "relative_path": "projects/connected.rpp",
+        },
+    )
+
+    assert response.status_code == 201
+    updated = response.json()
+    session_id = updated["assets"][0]["id"]
+    assert {
+        entry["album_asset_id"]
+        for entry in updated["sequences"][0]["entries"]
+    } == {session_id}
+
+
 def test_v2_registered_album_session_is_persisted(
     api_client: TestClient,
     music_root: Path,
@@ -423,6 +478,8 @@ def test_v2_registered_album_session_is_persisted(
         "/v2/albums",
         json={"title": "Persistent Session Album", "song_ids": []},
     ).json()
+    album_root = next((music_root / "albums").iterdir())
+    (album_root / "projects" / "album-wide.rpp").touch()
 
     response = api_client.post(
         f"/v2/albums/{album['id']}/sessions",
@@ -435,7 +492,6 @@ def test_v2_registered_album_session_is_persisted(
     assert response.status_code == 201
     returned = AlbumManifest.model_validate(response.json())
 
-    album_root = next((music_root / "albums").iterdir())
     assert load_album_manifest(album_root) == returned
 
     get_response = api_client.get(f"/v2/albums/{album['id']}")
@@ -884,3 +940,90 @@ def test_v2_register_song_project_returns_400_for_escaping_path(
 
     assert response.status_code == 400
     assert "must not escape storage" in response.json()["detail"]
+
+
+def test_v2_assign_album_session_to_song_sets_default_and_persists(
+    api_client: TestClient,
+    music_root: Path,
+) -> None:
+    song = api_client.post("/v2/songs", json={"title": "Connected Track"}).json()
+    album = api_client.post(
+        "/v2/albums",
+        json={"title": "Connected Record", "song_ids": [song["id"]]},
+    ).json()
+    album_root = next((music_root / "albums").iterdir())
+    (album_root / "projects" / "connected.rpp").touch()
+    album_session = api_client.post(
+        f"/v2/albums/{album['id']}/sessions",
+        json={
+            "title": "Connected Session",
+            "relative_path": "projects/connected.rpp",
+        },
+    ).json()["assets"][0]
+
+    response = api_client.post(
+        f"/v2/songs/{song['id']}/album-sessions",
+        json={"asset_id": album_session["id"]},
+    )
+
+    assert response.status_code == 201
+    updated = SongManifest.model_validate(response.json())
+    assert updated.assets[0].model_dump(mode="json") == album_session
+    assert updated.default_project_id == album_session["id"]
+    song_root = next((music_root / "songs").iterdir())
+    assert load_song_manifest(song_root) == updated
+
+
+def test_v2_assign_album_session_to_song_can_skip_default_selection(
+    api_client: TestClient,
+    music_root: Path,
+) -> None:
+    song = api_client.post("/v2/songs", json={"title": "Optional Track"}).json()
+    album = api_client.post(
+        "/v2/albums",
+        json={"title": "Optional Record", "song_ids": [song["id"]]},
+    ).json()
+    album_root = next((music_root / "albums").iterdir())
+    (album_root / "projects" / "optional.rpp").touch()
+    album_session = api_client.post(
+        f"/v2/albums/{album['id']}/sessions",
+        json={
+            "title": "Optional Session",
+            "relative_path": "projects/optional.rpp",
+        },
+    ).json()["assets"][0]
+
+    response = api_client.post(
+        f"/v2/songs/{song['id']}/album-sessions",
+        json={"asset_id": album_session["id"], "make_default": False},
+    )
+
+    assert response.status_code == 201
+    assert response.json()["assets"] == [album_session]
+    assert response.json()["default_project_id"] is None
+
+
+def test_v2_assign_album_session_to_song_returns_404_for_unknown_asset(
+    api_client: TestClient,
+) -> None:
+    song = api_client.post("/v2/songs", json={"title": "Missing Session"}).json()
+
+    response = api_client.post(
+        f"/v2/songs/{song['id']}/album-sessions",
+        json={"asset_id": "asset_00000000-0000-4000-8000-000000000000"},
+    )
+
+    assert response.status_code == 404
+    assert "Album session not found" in response.json()["detail"]
+
+
+def test_v2_assign_album_session_to_song_returns_404_for_unknown_song(
+    api_client: TestClient,
+) -> None:
+    response = api_client.post(
+        "/v2/songs/song_00000000-0000-4000-8000-000000000000/album-sessions",
+        json={"asset_id": "asset_00000000-0000-4000-8000-000000000000"},
+    )
+
+    assert response.status_code == 404
+    assert "Song not found" in response.json()["detail"]

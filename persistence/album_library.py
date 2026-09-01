@@ -21,6 +21,7 @@ from persistence.manifests import (
     load_song_manifest,
     write_album_manifest,
 )
+from persistence.paths import safe_directory_component
 from persistence.song_library import list_songs
 from persistence.storage import load_storage_manifest
 
@@ -47,7 +48,7 @@ def _validate_return_manifest(
 
 def create_album(root: Path, title: str, song_ids: list[str]) -> AlbumManifest:
     date = datetime.now().astimezone().strftime("%Y%m%d")
-    name = f"{date}_{title}"
+    name = f"{date}_{safe_directory_component(title)}"
 
     # verify all songs exist in ids
     available_song_ids = {manifest.id for manifest in list_songs(root)}
@@ -94,42 +95,54 @@ def list_albums(root: Path) -> list[AlbumManifest]:
 
 
 def register_album_session(
-    root: Path, album_id: str, title: str, relative_path: str, entry_ids: list[str]
+    root: Path,
+    album_id: str,
+    title: str,
+    relative_path: str,
+    entry_ids: list[str] | None = None,
 ) -> AlbumManifest:
-    albums_root = root / "albums"
-    album_root = None
-    manifest: AlbumManifest | None = None  # TODO fix errors
+    """Register an album project and associate it with album entries.
 
-    # find the right album
-    for candidate in albums_root.iterdir():
-        if not candidate.is_dir():
-            continue
+    If entry_ids is omitted, the session is assigned to every entry in the
+    primary sequence. An empty list registers it without assigning entries.
+    """
+    manifest, album_root = _find_album(root, album_id)
 
-        metadata_path = candidate / ".metadata.json"
-        if not metadata_path.is_file():
-            continue
-
-        candidate_manifest = load_album_manifest(candidate)
-
-        if candidate_manifest.id == album_id:
-            album_root = candidate
-            manifest = candidate_manifest
-            break
-
-    if album_root is None or manifest is None:
-        raise FileNotFoundError(f"Album not found: {album_id}")
+    if entry_ids is None:
+        primary_sequence = next(
+            sequence
+            for sequence in manifest.sequences
+            if sequence.id == manifest.primary_sequence_id
+        )
+        target_entry_ids = [entry.id for entry in primary_sequence.entries]
+    else:
+        target_entry_ids = entry_ids
 
     groups = [*manifest.sequences, *manifest.collections]
-    entries_by_id = {entry.id: entry for group in groups for entry in group.entries}
+    entries_by_id = {
+        entry.id: entry
+        for group in groups
+        for entry in group.entries
+    }
 
     missing_entry_ids = [
-        entry_id for entry_id in entry_ids if entry_id not in entries_by_id
+        entry_id
+        for entry_id in target_entry_ids
+        if entry_id not in entries_by_id
     ]
-
     if missing_entry_ids:
         raise ValueError(f"Missing entry ids: {missing_entry_ids}")
 
-    storage_relative_path = (album_root.relative_to(root) / relative_path).as_posix()
+    project_path = (album_root / relative_path).resolve()
+    projects_root = (album_root / "projects").resolve()
+
+    if not project_path.is_relative_to(projects_root):
+        raise ValueError("Album session must be inside the album projects directory")
+
+    if not project_path.exists():
+        raise FileNotFoundError(f"Project not found: {project_path}")
+
+    storage_relative_path = project_path.relative_to(root.resolve()).as_posix()
 
     session_asset = Asset(
         id=f"asset_{uuid4()}",
@@ -143,18 +156,10 @@ def register_album_session(
     )
 
     manifest.assets.append(session_asset)
-    for entry_id in entry_ids:
+    for entry_id in target_entry_ids:
         entries_by_id[entry_id].album_asset_id = session_asset.id
 
-    manifest.updated_at = datetime.now().astimezone()
-
-    validated_manifest = AlbumManifest.model_validate(
-        manifest.model_dump(mode="python")
-    )
-
-    _ = write_album_manifest(album_root, validated_manifest)
-
-    return validated_manifest
+    return _validate_return_manifest(manifest, album_root)
 
 
 def add_album_entry(
