@@ -14,6 +14,7 @@ from domain.manifests import (
     AssetLocation,
     AssetPurpose,
     Entry,
+    Sequence,
 )
 from persistence.manifests import (
     create_album_manifest,
@@ -119,16 +120,10 @@ def register_album_session(
         target_entry_ids = entry_ids
 
     groups = [*manifest.sequences, *manifest.collections]
-    entries_by_id = {
-        entry.id: entry
-        for group in groups
-        for entry in group.entries
-    }
+    entries_by_id = {entry.id: entry for group in groups for entry in group.entries}
 
     missing_entry_ids = [
-        entry_id
-        for entry_id in target_entry_ids
-        if entry_id not in entries_by_id
+        entry_id for entry_id in target_entry_ids if entry_id not in entries_by_id
     ]
     if missing_entry_ids:
         raise ValueError(f"Missing entry ids: {missing_entry_ids}")
@@ -438,5 +433,73 @@ def update_album_metadata(
         manifest.tags = changes["tags"]
 
     # validate manifest
+
+    return _validate_return_manifest(manifest, album_path)
+
+
+def create_album_sequence(
+    root: Path, album_id: str, title: str, description: str = ""
+) -> AlbumManifest:
+
+    if not title.strip():
+        raise ValueError("Title cannot be empty")
+
+    manifest, album_path = _find_album(root, album_id)
+    manifest.sequences.append(
+        Sequence(
+            id=f"sequence_{uuid4()}",
+            title=title,
+            description=description,
+        )
+    )
+
+    return _validate_return_manifest(manifest, album_path)
+
+
+def update_album_sequence(
+    root: Path,
+    album_id: str,
+    sequence_id: str,
+    title: str | None = None,
+    description: str | None = None,
+) -> AlbumManifest:
+
+    manifest, album_path = _find_album(root, album_id)
+
+    sequence = next((s for s in manifest.sequences if s.id == sequence_id), None)
+
+    if sequence is None:
+        raise FileNotFoundError(f"Sequence {sequence_id} not found")
+
+    if title is not None:
+        if not title.strip():
+            raise ValueError("Title cannot be empty")
+        sequence.title = title
+    if description is not None:
+        sequence.description = description
+
+    if title is None and description is None:
+        return manifest
+
+    return _validate_return_manifest(manifest, album_path)
+
+
+def delete_album_sequence(
+    root: Path,
+    album_id: str,
+    sequence_id: str,
+) -> AlbumManifest:
+
+    manifest, album_path = _find_album(root, album_id)
+
+    if sequence_id == manifest.primary_sequence_id:
+        raise ValueError("Cannot delete the primary sequence")
+
+    sequence = next((s for s in manifest.sequences if s.id == sequence_id), None)
+
+    if sequence is None:
+        raise FileNotFoundError(f"Sequence {sequence_id} not found")
+
+    manifest.sequences.remove(sequence)
 
     return _validate_return_manifest(manifest, album_path)

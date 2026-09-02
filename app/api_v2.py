@@ -2,7 +2,7 @@
 # updated api for new metadata system
 
 
-from typing import cast
+from typing import Literal, cast
 
 from fastapi import APIRouter, HTTPException, status
 from pydantic import BaseModel
@@ -13,11 +13,14 @@ from persistence.album_library import (
     AlbumMetadataChanges,
     add_album_entry,
     create_album,
+    create_album_sequence,
+    delete_album_sequence,
     list_albums,
     register_album_session,
     remove_album_entry,
     reorder_album_entry,
     update_album_metadata,
+    update_album_sequence,
 )
 from persistence.album_library import (
     get_album as get_album_from_library,
@@ -26,6 +29,7 @@ from persistence.song_library import (
     SongMetaDataChanges,
     assign_album_session_to_song,
     create_song,
+    create_song_project_from_template,
     list_songs,
     register_song_project,
     update_song_metadata,
@@ -39,11 +43,13 @@ router = APIRouter(prefix="/v2")
 class SongCreateV2(BaseModel):
     title: str
 
+
 class SongUpdateV2(BaseModel):
     title: str | None = None
     description: str | None = None
     tags: list[str] | None = None
     default_project_id: str | None = None
+
 
 class ProjectCreateV2(BaseModel):
     title: str
@@ -52,9 +58,25 @@ class ProjectCreateV2(BaseModel):
     make_default: bool = True
 
 
+class ProjectFromTemplateCreateV2(BaseModel):
+    template_name: str
+    title: str | None = None
+    make_default: bool = True
+
+
 class AlbumSessionAssignmentV2(BaseModel):
     asset_id: str
     make_default: bool = True
+
+
+class AlbumSequenceCreateV2(BaseModel):
+    title: str
+    description: str = ""
+
+
+class AlbumSequenceUpdateV2(BaseModel):
+    title: str | None = None
+    description: str | None = None
 
 
 class AlbumCreateV2(BaseModel):
@@ -67,10 +89,12 @@ class AlbumSessionCreateV2(BaseModel):
     relative_path: str
     entry_ids: list[str] | None = None
 
+
 class AlbumUpdateV2(BaseModel):
     title: str | None = None
     description: str | None = None
     tags: list[str] | None = None
+
 
 class AlbumEntryCreateV2(BaseModel):
     song_id: str
@@ -310,31 +334,26 @@ def get_storage() -> StorageManifest:
             status_code=status.HTTP_404_NOT_FOUND, detail="Storage not initialized"
         ) from e
 
+
 @router.patch(
     "/songs/{song_id}",
     response_model=SongManifest,
 )
-def patch_song_metadata(
-    song_id: str,
-    payload: SongUpdateV2
-) -> SongManifest:
+def patch_song_metadata(song_id: str, payload: SongUpdateV2) -> SongManifest:
     try:
         changes = cast(
-            SongMetaDataChanges,
-            cast(
-                object,
-                payload.model_dump(exclude_unset=True)
-            )
+            SongMetaDataChanges, cast(object, payload.model_dump(exclude_unset=True))
         )
         return update_song_metadata(
-            root=get_config().root,
-            song_id=song_id,
-            changes=changes
+            root=get_config().root, song_id=song_id, changes=changes
         )
     except FileNotFoundError as e:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e)) from e
     except ValueError as e:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e)) from e
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST, detail=str(e)
+        ) from e
+
 
 @router.patch("/albums/{album_id}", response_model=AlbumManifest)
 def patch_album(
@@ -343,16 +362,10 @@ def patch_album(
 ) -> AlbumManifest:
     try:
         changes = cast(
-            AlbumMetadataChanges,
-            cast(
-                object,
-                payload.model_dump(exclude_unset=True)
-            )
+            AlbumMetadataChanges, cast(object, payload.model_dump(exclude_unset=True))
         )
         return update_album_metadata(
-            root=get_config().root,
-            album_id=album_id,
-            changes=changes
+            root=get_config().root, album_id=album_id, changes=changes
         )
     except FileNotFoundError as exc:
         raise HTTPException(
@@ -364,3 +377,144 @@ def patch_album(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=str(exc),
         ) from exc
+
+
+class ProjectTemplateV2(BaseModel):
+    name: str
+    extension: str
+    layout: Literal["single_file", "nested_folder"]
+
+
+@router.get("/project-templates", response_model=list[ProjectTemplateV2])
+def get_project_templates() -> list[ProjectTemplateV2]:
+    templates = get_config().templates
+    return [
+        ProjectTemplateV2(
+            name=name,
+            extension=template.root.suffix,
+            layout="nested_folder" if template.folder else "single_file",
+        )
+        for name, template in templates.items()
+        if template.root.is_file() and template.root.suffix
+    ]
+
+
+@router.post(
+    "/songs/{song_id}/projects/from-template",
+    response_model=SongManifest,
+    status_code=status.HTTP_201_CREATED,
+)
+def post_song_project_from_template(
+    song_id: str, payload: ProjectFromTemplateCreateV2
+) -> SongManifest:
+    config = get_config()
+    template = config.templates.get(payload.template_name)
+    if not template:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Template '{payload.template_name}' not found",
+        )
+
+    try:
+        return create_song_project_from_template(
+            root=config.root,
+            song_id=song_id,
+            template_path=template.root,
+            nested_folder=template.folder,
+            title=payload.title,
+            make_default=payload.make_default,
+        )
+    except FileNotFoundError as e:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=str(e),
+        ) from e
+    except FileExistsError as e:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=str(e),
+        ) from e
+    except ValueError as e:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(e),
+        ) from e
+
+
+@router.post(
+    "/albums/{album_id}/sequences",
+    response_model=AlbumManifest,
+    status_code=status.HTTP_201_CREATED,
+)
+def post_album_sequence(album_id: str, payload: AlbumSequenceCreateV2) -> AlbumManifest:
+    try:
+        return create_album_sequence(
+            root=get_config().root,
+            album_id=album_id,
+            title=payload.title,
+            description=payload.description,
+        )
+    except FileNotFoundError as error:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=str(error),
+        ) from error
+    except ValueError as error:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(error),
+        ) from error
+
+
+@router.patch(
+    "/albums/{album_id}/sequences/{sequence_id}",
+    response_model=AlbumManifest,
+    status_code=status.HTTP_200_OK,
+)
+def patch_album_sequence(
+    album_id: str, sequence_id: str, payload: AlbumSequenceUpdateV2
+) -> AlbumManifest:
+    try:
+        return update_album_sequence(
+            root=get_config().root,
+            album_id=album_id,
+            sequence_id=sequence_id,
+            title=payload.title,
+            description=payload.description,
+        )
+    except FileNotFoundError as error:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=str(error),
+        ) from error
+    except ValueError as error:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(error),
+        ) from error
+
+
+@router.delete(
+    "/albums/{album_id}/sequences/{sequence_id}",
+    response_model=AlbumManifest,
+)
+def delete_album_sequence_route(
+    album_id: str,
+    sequence_id: str,
+) -> AlbumManifest:
+    try:
+        return delete_album_sequence(
+            root=get_config().root,
+            album_id=album_id,
+            sequence_id=sequence_id,
+        )
+    except FileNotFoundError as error:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=str(error),
+        ) from error
+    except ValueError as error:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(error),
+        ) from error

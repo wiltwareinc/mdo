@@ -25,10 +25,13 @@ from persistence import album_library
 from persistence.album_library import (
     add_album_entry,
     create_album,
+    create_album_sequence,
+    delete_album_sequence,
     list_albums,
     register_album_session,
     remove_album_entry,
     reorder_album_entry,
+    update_album_sequence,
     update_album_metadata,
 )
 from persistence.manifests import (
@@ -101,6 +104,195 @@ def test_create_album_allows_empty_primary_sequence(library_root: Path) -> None:
     assert len(manifest.sequences) == 1
     assert manifest.sequences[0].entries == []
     assert manifest.primary_sequence_id == manifest.sequences[0].id
+
+
+def test_create_album_sequence_adds_empty_secondary_sequence_and_persists(
+    library_root: Path,
+) -> None:
+    original = create_album(library_root, "Multiple Tracklists", SONG_IDS)
+    album_root = next((library_root / "albums").iterdir())
+
+    updated = create_album_sequence(
+        library_root,
+        original.id,
+        "B-Sides",
+        "Alternate ordered tracklist.",
+    )
+
+    assert len(updated.sequences) == 2
+    secondary = updated.sequences[1]
+    assert secondary.id.startswith("sequence_")
+    assert secondary.title == "B-Sides"
+    assert secondary.description == "Alternate ordered tracklist."
+    assert secondary.entries == []
+    assert updated.primary_sequence_id == original.primary_sequence_id
+    assert load_album_manifest(album_root) == updated
+
+
+def test_created_album_sequence_accepts_entries_through_existing_operation(
+    library_root: Path,
+    added_song_id: str,
+) -> None:
+    original = create_album(library_root, "B-Sides Album", SONG_IDS)
+    with_secondary = create_album_sequence(
+        library_root,
+        original.id,
+        "B-Sides",
+    )
+    secondary = with_secondary.sequences[1]
+
+    updated = add_album_entry(
+        library_root,
+        original.id,
+        added_song_id,
+        sequence_id=secondary.id,
+    )
+
+    assert updated.sequences[0].entries == original.sequences[0].entries
+    assert [entry.song_id for entry in updated.sequences[1].entries] == [
+        added_song_id
+    ]
+
+
+def test_create_album_sequence_rejects_blank_title_without_writing(
+    library_root: Path,
+) -> None:
+    original = create_album(library_root, "Blank Sequence Album", SONG_IDS)
+    album_root = next((library_root / "albums").iterdir())
+
+    with pytest.raises(ValueError, match="Title cannot be empty"):
+        create_album_sequence(library_root, original.id, "   ")
+
+    assert load_album_manifest(album_root) == original
+
+
+def test_update_album_sequence_supports_partial_changes_and_clearing(
+    library_root: Path,
+) -> None:
+    original = create_album(library_root, "Editable Sequences", SONG_IDS)
+    created = create_album_sequence(
+        library_root,
+        original.id,
+        "B-Sides",
+        "Temporary description",
+    )
+    secondary = created.sequences[1]
+    album_root = next((library_root / "albums").iterdir())
+
+    renamed = update_album_sequence(
+        library_root,
+        original.id,
+        secondary.id,
+        title="Deluxe B-Sides",
+    )
+    assert renamed.sequences[1].title == "Deluxe B-Sides"
+    assert renamed.sequences[1].description == "Temporary description"
+
+    cleared = update_album_sequence(
+        library_root,
+        original.id,
+        secondary.id,
+        description="",
+    )
+    assert cleared.sequences[1].title == "Deluxe B-Sides"
+    assert cleared.sequences[1].description == ""
+    assert load_album_manifest(album_root) == cleared
+
+
+def test_update_album_sequence_rejects_unknown_sequence_without_writing(
+    library_root: Path,
+) -> None:
+    original = create_album(library_root, "Missing Sequence Album", SONG_IDS)
+    album_root = next((library_root / "albums").iterdir())
+
+    with pytest.raises(FileNotFoundError, match="Sequence .* not found"):
+        update_album_sequence(
+            library_root,
+            original.id,
+            "sequence_00000000-0000-4000-8000-000000000000",
+            title="Missing",
+        )
+
+    assert load_album_manifest(album_root) == original
+
+
+def test_update_album_sequence_rejects_blank_title_without_writing(
+    library_root: Path,
+) -> None:
+    original = create_album(library_root, "Invalid Sequence Album", SONG_IDS)
+    album_root = next((library_root / "albums").iterdir())
+    sequence = original.sequences[0]
+
+    with pytest.raises(ValueError, match="Title cannot be empty"):
+        update_album_sequence(
+            library_root,
+            original.id,
+            sequence.id,
+            title=" ",
+        )
+
+    assert load_album_manifest(album_root) == original
+
+
+def test_delete_album_sequence_removes_only_secondary_sequence_and_persists(
+    library_root: Path,
+) -> None:
+    original = create_album(library_root, "Deletable B-Sides", SONG_IDS)
+    created = create_album_sequence(library_root, original.id, "B-Sides")
+    secondary = created.sequences[1]
+    with_entry = add_album_entry(
+        library_root,
+        original.id,
+        SONG_IDS[0],
+        sequence_id=secondary.id,
+    )
+    album_root = next((library_root / "albums").iterdir())
+    song_roots_before = set((library_root / "songs").iterdir())
+
+    updated = delete_album_sequence(
+        library_root,
+        original.id,
+        secondary.id,
+    )
+
+    assert [sequence.id for sequence in updated.sequences] == [
+        original.primary_sequence_id
+    ]
+    assert updated.sequences[0] == with_entry.sequences[0]
+    assert set((library_root / "songs").iterdir()) == song_roots_before
+    assert load_album_manifest(album_root) == updated
+
+
+def test_delete_album_sequence_rejects_primary_without_writing(
+    library_root: Path,
+) -> None:
+    original = create_album(library_root, "Protected Primary", SONG_IDS)
+    album_root = next((library_root / "albums").iterdir())
+
+    with pytest.raises(ValueError, match="Cannot delete the primary sequence"):
+        delete_album_sequence(
+            library_root,
+            original.id,
+            original.primary_sequence_id,
+        )
+
+    assert load_album_manifest(album_root) == original
+
+
+def test_delete_album_sequence_rejects_unknown_sequence_without_writing(
+    library_root: Path,
+) -> None:
+    original = create_album(library_root, "Unknown Sequence", SONG_IDS)
+    album_root = next((library_root / "albums").iterdir())
+
+    with pytest.raises(FileNotFoundError, match="Sequence .* not found"):
+        delete_album_sequence(
+            library_root,
+            original.id,
+            "sequence_00000000-0000-4000-8000-000000000000",
+        )
+
+    assert load_album_manifest(album_root) == original
 
 
 def test_create_album_rejects_unknown_song_without_creating_directory(

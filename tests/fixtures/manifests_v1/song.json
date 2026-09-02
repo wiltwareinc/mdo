@@ -1,0 +1,31 @@
+{
+  "slug": "20240102-first-song",
+  "title": "First Song",
+  "description": "A legacy description.",
+  "tags": [
+    "legacy",
+    "connected"
+  ],
+  "timezone": "America/New_York",
+  "lyrics": [
+    {
+      "path": "lyrics/first-song.txt"
+    }
+  ],
+  "projects": [
+    {
+      "path": "projects/main-session"
+    },
+    {
+      "path": "projects/alternate-session"
+    }
+  ],
+  "default_project": "projects/main-session",
+  "renders": [
+    {
+      "path": "renders/first-mix.wav"
+    }
+  ],
+  "created_at": "2024-01-02T00:00:00-05:00",
+  "modified_at": "2024-02-03T14:30:00-05:00"
+}

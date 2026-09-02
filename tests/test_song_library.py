@@ -28,6 +28,7 @@ from persistence.manifests import load_song_manifest, write_song_manifest
 from persistence.song_library import (
     assign_album_session_to_song,
     create_song,
+    create_song_project_from_template,
     list_songs,
     register_song_project,
     update_song_metadata,
@@ -534,3 +535,172 @@ def test_update_song_metadata_rejects_unknown_song(library_root: Path) -> None:
             "song_00000000-0000-4000-8000-000000000000",
             {"title": "Missing"},
         )
+
+
+def test_create_song_project_from_file_template_uses_song_title_and_persists(
+    library_root: Path,
+    tmp_path: Path,
+) -> None:
+    song = create_song(library_root, "Template Song")
+    song_root = next((library_root / "songs").iterdir())
+    template = tmp_path / "default.RPP"
+    template.write_text("REAPER_TEMPLATE", encoding="utf-8")
+
+    updated = create_song_project_from_template(
+        library_root,
+        song.id,
+        template,
+        nested_folder=False,
+    )
+
+    project_roots = list((song_root / "projects").iterdir())
+    assert len(project_roots) == 1
+    assert project_roots[0].name.endswith("_Template Song")
+    project_file = project_roots[0] / "Template Song.RPP"
+    assert project_file.read_text(encoding="utf-8") == "REAPER_TEMPLATE"
+    assert updated.assets[0].title == "Template Song"
+    assert updated.assets[0].location.path.endswith(
+        "/projects/" + project_roots[0].name + "/Template Song.RPP"
+    )
+    assert updated.default_project_id == updated.assets[0].id
+    assert load_song_manifest(song_root) == updated
+
+
+def test_create_song_project_from_nested_template_preserves_folder_layout(
+    library_root: Path,
+    tmp_path: Path,
+) -> None:
+    song = create_song(library_root, "Ableton Song")
+    song_root = next((library_root / "songs").iterdir())
+    template_root = tmp_path / "ableton-template"
+    template_root.mkdir()
+    (template_root / "Samples").mkdir()
+    (template_root / "Ableton Project Info").mkdir()
+    template = template_root / "default.als"
+    template.write_text("ABLETON_TEMPLATE", encoding="utf-8")
+
+    updated = create_song_project_from_template(
+        library_root,
+        song.id,
+        template,
+        nested_folder=True,
+        title="Live Set",
+        make_default=False,
+    )
+
+    project_root = next((song_root / "projects").iterdir())
+    nested_root = project_root / "Live Set"
+    assert (nested_root / "Live Set.als").read_text(encoding="utf-8") == (
+        "ABLETON_TEMPLATE"
+    )
+    assert (nested_root / "Samples").is_dir()
+    assert (nested_root / "Ableton Project Info").is_dir()
+    assert updated.assets[0].title == "Live Set"
+    assert updated.assets[0].location.path.endswith(
+        "/projects/" + project_root.name + "/Live Set/Live Set.als"
+    )
+    assert updated.default_project_id is None
+    assert load_song_manifest(song_root) == updated
+
+
+def test_create_song_project_from_template_increments_duplicate_names(
+    library_root: Path,
+    tmp_path: Path,
+) -> None:
+    song = create_song(library_root, "Duplicate Project Song")
+    song_root = next((library_root / "songs").iterdir())
+    template = tmp_path / "default.RPP"
+    template.touch()
+
+    create_song_project_from_template(
+        library_root,
+        song.id,
+        template,
+        nested_folder=False,
+        title="Same Session",
+    )
+    updated = create_song_project_from_template(
+        library_root,
+        song.id,
+        template,
+        nested_folder=False,
+        title="Same Session",
+    )
+
+    project_names = sorted(path.name for path in (song_root / "projects").iterdir())
+    assert project_names[1] == f"{project_names[0]}_1"
+    assert len(updated.assets) == 2
+    assert updated.default_project_id == updated.assets[-1].id
+
+
+def test_create_song_project_from_template_rejects_missing_template_without_writing(
+    library_root: Path,
+    tmp_path: Path,
+) -> None:
+    song = create_song(library_root, "Missing Template Song")
+    song_root = next((library_root / "songs").iterdir())
+
+    with pytest.raises(FileNotFoundError, match="Template not found"):
+        create_song_project_from_template(
+            library_root,
+            song.id,
+            tmp_path / "missing.RPP",
+            nested_folder=False,
+        )
+
+    assert list((song_root / "projects").iterdir()) == []
+    assert load_song_manifest(song_root) == song
+
+
+def test_create_song_project_from_template_cleans_up_failed_copy(
+    library_root: Path,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    song = create_song(library_root, "Copy Failure Song")
+    song_root = next((library_root / "songs").iterdir())
+    template = tmp_path / "default.RPP"
+    template.touch()
+
+    def fail_copy(*args, **kwargs):
+        raise OSError("simulated template copy failure")
+
+    monkeypatch.setattr(song_library.shutil, "copy2", fail_copy)
+
+    with pytest.raises(OSError, match="simulated template copy failure"):
+        create_song_project_from_template(
+            library_root,
+            song.id,
+            template,
+            nested_folder=False,
+        )
+
+    assert list((song_root / "projects").iterdir()) == []
+    assert load_song_manifest(song_root) == song
+
+
+def test_create_song_project_from_template_cleans_up_failed_manifest_write(
+    library_root: Path,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    song = create_song(library_root, "Write Failure Song")
+    song_root = next((library_root / "songs").iterdir())
+    template = tmp_path / "default.RPP"
+    template.touch()
+
+    def fail_write(*args, **kwargs) -> Path:
+        raise OSError("simulated template manifest write failure")
+
+    monkeypatch.setattr(song_library, "write_song_manifest", fail_write)
+
+    with pytest.raises(OSError, match="simulated template manifest write failure"):
+        create_song_project_from_template(
+            library_root,
+            song.id,
+            template,
+            nested_folder=False,
+        )
+
+    assert list((song_root / "projects").iterdir()) == []
+    assert load_song_manifest(song_root) == song

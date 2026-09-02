@@ -17,6 +17,7 @@ from persistence.manifests import (
 from persistence.paths import safe_directory_component
 from persistence.storage import load_storage_manifest
 
+
 def _validate_return_manifest(manifest: SongManifest, song_path: Path) -> SongManifest:
     manifest.updated_at = datetime.now().astimezone()
 
@@ -25,6 +26,7 @@ def _validate_return_manifest(manifest: SongManifest, song_path: Path) -> SongMa
     _ = write_song_manifest(song_path, validated_manifest)
 
     return validated_manifest
+
 
 def create_song(root: Path, title: str) -> SongManifest:
     date = datetime.now().astimezone().strftime("%Y%m%d")
@@ -234,6 +236,7 @@ def register_song_project(
 
     return validated_manifest
 
+
 class SongMetaDataChanges(TypedDict, total=False):
     title: str
     description: str | None
@@ -242,9 +245,7 @@ class SongMetaDataChanges(TypedDict, total=False):
 
 
 def update_song_metadata(
-    root: Path,
-    song_id: str,
-    changes: SongMetaDataChanges
+    root: Path, song_id: str, changes: SongMetaDataChanges
 ) -> SongManifest:
     """Updates the metadata for a given song.
 
@@ -265,12 +266,7 @@ def update_song_metadata(
 
     # supposedly, because this is coming from the API, we need a dynamic
     # checker to ensure that the unexpected fields are good
-    allowed_fields = {
-        "title",
-        "description",
-        "tags",
-        "default_project_id"
-    }
+    allowed_fields = {"title", "description", "tags", "default_project_id"}
 
     unexpected_fields = changes.keys() - allowed_fields
     if unexpected_fields:
@@ -364,3 +360,75 @@ def assign_album_session_to_song(
         manifest.default_project_id = asset.id
 
     return _validate_return_manifest(manifest, song_path)
+
+
+def _next_project_root(projects_root: Path, base_name: str) -> Path:
+    """Helper function to find next available project rooot"""
+    candidate = projects_root / base_name
+    counter = 1
+
+    while candidate.exists():
+        candidate = projects_root / f"{base_name}_{counter}"
+        counter += 1
+
+    return candidate
+
+
+def create_song_project_from_template(
+    root: Path,
+    song_id: str,
+    template_path: Path,
+    nested_folder: bool,
+    title: str | None = None,  # if None then use song name
+    make_default: bool = True,
+) -> SongManifest:
+
+    manifest, song_path = _find_song(root, song_id)
+
+    if not template_path.is_file():
+        raise FileNotFoundError(f"Template not found: {template_path}")
+
+    projects_root = song_path / "projects"
+
+    if not projects_root.is_dir():
+        raise FileNotFoundError(f"Projects directory not found: {projects_root}")
+
+    project_title = manifest.title if title is None else title
+    safe_title = safe_directory_component(project_title)
+    date = datetime.now().strftime("%Y%m%d")
+
+    project_root = _next_project_root(projects_root, f"{date}_{safe_title}")
+
+    created = False
+    try:
+        project_root.mkdir()
+        created = True
+
+        if nested_folder:
+            nested_root = project_root / safe_title
+            _ = shutil.copytree(template_path.parent, nested_root)
+
+            copied_template = nested_root / template_path.name
+            project_file = nested_root / f"{safe_title}{template_path.suffix}"
+
+            if copied_template != project_file:
+                _ = copied_template.rename(project_file)
+
+        else:
+            project_file = project_root / f"{safe_title}{template_path.suffix}"
+            _ = shutil.copy2(template_path, project_file)
+
+        relative_path = project_file.relative_to(song_path).as_posix()
+
+        return register_song_project(
+            root=root,
+            song_id=song_id,
+            title=project_title,
+            relative_path=relative_path,
+            make_default=make_default,
+        )
+
+    except Exception:
+        if created:
+            shutil.rmtree(project_root)
+        raise

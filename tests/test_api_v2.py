@@ -17,6 +17,7 @@ Authored by OpenAI Codex on 2026-08-25.
 
 from __future__ import annotations
 
+import json
 from pathlib import Path
 
 from fastapi.testclient import TestClient
@@ -1027,3 +1028,371 @@ def test_v2_assign_album_session_to_song_returns_404_for_unknown_song(
 
     assert response.status_code == 404
     assert "Song not found" in response.json()["detail"]
+
+
+def test_v2_project_templates_lists_usable_templates_without_paths(
+    api_client: TestClient,
+) -> None:
+    response = api_client.get("/v2/project-templates")
+
+    assert response.status_code == 200
+    assert response.json() == [
+        {
+            "name": "Reaper",
+            "extension": ".RPP",
+            "layout": "single_file",
+        },
+        {
+            "name": "Ableton",
+            "extension": ".als",
+            "layout": "nested_folder",
+        },
+    ]
+    assert all(
+        set(template) == {"name", "extension", "layout"}
+        for template in response.json()
+    )
+
+
+def test_v2_project_templates_omits_missing_and_extensionless_templates(
+    api_client: TestClient,
+    config_path: Path,
+    tmp_path: Path,
+) -> None:
+    config = json.loads(config_path.read_text(encoding="utf-8"))
+    extensionless_template = tmp_path / "templates" / "extensionless"
+    extensionless_template.touch()
+    config["templates"] = {
+        "Missing": {
+            "path": str(tmp_path / "templates" / "missing.RPP"),
+            "folder": False,
+        },
+        "Extensionless": {
+            "path": str(extensionless_template),
+            "folder": False,
+        },
+        "Reaper": config["templates"]["Reaper"],
+    }
+    config_path.write_text(json.dumps(config), encoding="utf-8")
+
+    response = api_client.get("/v2/project-templates")
+
+    assert response.status_code == 200
+    assert response.json() == [
+        {
+            "name": "Reaper",
+            "extension": ".RPP",
+            "layout": "single_file",
+        }
+    ]
+
+
+def test_v2_project_templates_returns_empty_list_without_templates(
+    api_client: TestClient,
+    config_path: Path,
+) -> None:
+    config = json.loads(config_path.read_text(encoding="utf-8"))
+    config["templates"] = {}
+    config_path.write_text(json.dumps(config), encoding="utf-8")
+
+    response = api_client.get("/v2/project-templates")
+
+    assert response.status_code == 200
+    assert response.json() == []
+
+
+def test_v2_create_song_project_from_file_template_uses_song_title(
+    api_client: TestClient,
+    music_root: Path,
+) -> None:
+    song = api_client.post("/v2/songs", json={"title": "API Template Song"}).json()
+    song_root = next((music_root / "songs").iterdir())
+
+    response = api_client.post(
+        f"/v2/songs/{song['id']}/projects/from-template",
+        json={"template_name": "Reaper"},
+    )
+
+    assert response.status_code == 201
+    updated = SongManifest.model_validate(response.json())
+    project_root = next((song_root / "projects").iterdir())
+    project_file = project_root / "API Template Song.RPP"
+    assert project_file.read_text(encoding="utf-8") == "dummy reaper template"
+    assert updated.assets[0].title == "API Template Song"
+    assert updated.default_project_id == updated.assets[0].id
+    assert load_song_manifest(song_root) == updated
+
+
+def test_v2_create_song_project_from_nested_template_uses_custom_title(
+    api_client: TestClient,
+    music_root: Path,
+) -> None:
+    song = api_client.post("/v2/songs", json={"title": "API Ableton Song"}).json()
+    song_root = next((music_root / "songs").iterdir())
+
+    response = api_client.post(
+        f"/v2/songs/{song['id']}/projects/from-template",
+        json={
+            "template_name": "Ableton",
+            "title": "Custom Live Set",
+            "make_default": False,
+        },
+    )
+
+    assert response.status_code == 201
+    updated = SongManifest.model_validate(response.json())
+    project_root = next((song_root / "projects").iterdir())
+    nested_root = project_root / "Custom Live Set"
+    assert (nested_root / "Custom Live Set.als").read_text(
+        encoding="utf-8"
+    ) == "dummy ableton template"
+    assert (nested_root / "Samples").is_dir()
+    assert (nested_root / "Ableton Project Info").is_dir()
+    assert updated.assets[0].title == "Custom Live Set"
+    assert updated.default_project_id is None
+
+
+def test_v2_create_song_project_from_template_returns_404_for_unknown_template(
+    api_client: TestClient,
+) -> None:
+    song = api_client.post("/v2/songs", json={"title": "Unknown Template"}).json()
+
+    response = api_client.post(
+        f"/v2/songs/{song['id']}/projects/from-template",
+        json={"template_name": "Unknown"},
+    )
+
+    assert response.status_code == 404
+    assert "not found" in response.json()["detail"]
+
+
+def test_v2_create_song_project_from_template_returns_404_for_missing_file(
+    api_client: TestClient,
+    config_path: Path,
+    tmp_path: Path,
+) -> None:
+    song = api_client.post("/v2/songs", json={"title": "Missing Template"}).json()
+    config = json.loads(config_path.read_text(encoding="utf-8"))
+    config["templates"]["Reaper"]["path"] = str(tmp_path / "missing.RPP")
+    config_path.write_text(json.dumps(config), encoding="utf-8")
+
+    response = api_client.post(
+        f"/v2/songs/{song['id']}/projects/from-template",
+        json={"template_name": "Reaper"},
+    )
+
+    assert response.status_code == 404
+    assert "Template not found" in response.json()["detail"]
+
+
+def test_v2_create_song_project_from_template_returns_404_for_unknown_song(
+    api_client: TestClient,
+) -> None:
+    response = api_client.post(
+        "/v2/songs/song_00000000-0000-4000-8000-000000000000/projects/from-template",
+        json={"template_name": "Reaper"},
+    )
+
+    assert response.status_code == 404
+    assert "Song not found" in response.json()["detail"]
+
+
+def test_v2_create_song_project_from_template_rejects_unusable_title(
+    api_client: TestClient,
+    music_root: Path,
+) -> None:
+    song = api_client.post("/v2/songs", json={"title": "Safe Song"}).json()
+    song_root = next((music_root / "songs").iterdir())
+
+    response = api_client.post(
+        f"/v2/songs/{song['id']}/projects/from-template",
+        json={"template_name": "Reaper", "title": "/\\:*?"},
+    )
+
+    assert response.status_code == 400
+    assert "usable filename characters" in response.json()["detail"]
+    assert list((song_root / "projects").iterdir()) == []
+
+
+def test_v2_create_album_sequence_persists_secondary_tracklist(
+    api_client: TestClient,
+    music_root: Path,
+) -> None:
+    album = api_client.post(
+        "/v2/albums",
+        json={"title": "Multiple Tracklists", "song_ids": []},
+    ).json()
+
+    response = api_client.post(
+        f"/v2/albums/{album['id']}/sequences",
+        json={"title": "B-Sides", "description": "Alternate order."},
+    )
+
+    assert response.status_code == 201
+    updated = AlbumManifest.model_validate(response.json())
+    assert len(updated.sequences) == 2
+    assert updated.sequences[1].title == "B-Sides"
+    assert updated.sequences[1].description == "Alternate order."
+    assert updated.sequences[1].entries == []
+    assert updated.primary_sequence_id == album["primary_sequence_id"]
+    album_root = next((music_root / "albums").iterdir())
+    assert load_album_manifest(album_root) == updated
+
+
+def test_v2_created_album_sequence_accepts_entries(
+    api_client: TestClient,
+) -> None:
+    song = api_client.post("/v2/songs", json={"title": "B-Side Song"}).json()
+    album = api_client.post(
+        "/v2/albums",
+        json={"title": "B-Sides Album", "song_ids": []},
+    ).json()
+    sequence_response = api_client.post(
+        f"/v2/albums/{album['id']}/sequences",
+        json={"title": "B-Sides"},
+    ).json()
+    sequence_id = sequence_response["sequences"][1]["id"]
+
+    response = api_client.post(
+        f"/v2/albums/{album['id']}/entries",
+        json={"song_id": song["id"], "sequence_id": sequence_id},
+    )
+
+    assert response.status_code == 201
+    assert response.json()["sequences"][1]["entries"][0]["song_id"] == song["id"]
+
+
+def test_v2_create_album_sequence_returns_expected_errors(
+    api_client: TestClient,
+) -> None:
+    album = api_client.post(
+        "/v2/albums",
+        json={"title": "Sequence Errors", "song_ids": []},
+    ).json()
+
+    blank = api_client.post(
+        f"/v2/albums/{album['id']}/sequences",
+        json={"title": " "},
+    )
+    missing = api_client.post(
+        "/v2/albums/album_00000000-0000-4000-8000-000000000000/sequences",
+        json={"title": "Missing Album"},
+    )
+
+    assert blank.status_code == 400
+    assert "Title cannot be empty" in blank.json()["detail"]
+    assert missing.status_code == 404
+    assert "Album not found" in missing.json()["detail"]
+
+
+def test_v2_patch_album_sequence_supports_partial_updates_and_clearing(
+    api_client: TestClient,
+) -> None:
+    album = api_client.post(
+        "/v2/albums",
+        json={"title": "Editable Tracklists", "song_ids": []},
+    ).json()
+    created = api_client.post(
+        f"/v2/albums/{album['id']}/sequences",
+        json={"title": "B-Sides", "description": "Temporary"},
+    ).json()
+    sequence_id = created["sequences"][1]["id"]
+
+    renamed = api_client.patch(
+        f"/v2/albums/{album['id']}/sequences/{sequence_id}",
+        json={"title": "Deluxe B-Sides"},
+    )
+    cleared = api_client.patch(
+        f"/v2/albums/{album['id']}/sequences/{sequence_id}",
+        json={"description": ""},
+    )
+
+    assert renamed.status_code == 200
+    assert renamed.json()["sequences"][1]["title"] == "Deluxe B-Sides"
+    assert renamed.json()["sequences"][1]["description"] == "Temporary"
+    assert cleared.status_code == 200
+    assert cleared.json()["sequences"][1]["title"] == "Deluxe B-Sides"
+    assert cleared.json()["sequences"][1]["description"] == ""
+
+
+def test_v2_patch_album_sequence_returns_expected_errors(
+    api_client: TestClient,
+) -> None:
+    album = api_client.post(
+        "/v2/albums",
+        json={"title": "Patch Errors", "song_ids": []},
+    ).json()
+    sequence_id = album["primary_sequence_id"]
+
+    blank = api_client.patch(
+        f"/v2/albums/{album['id']}/sequences/{sequence_id}",
+        json={"title": ""},
+    )
+    missing_sequence = api_client.patch(
+        f"/v2/albums/{album['id']}/sequences/sequence_00000000-0000-4000-8000-000000000000",
+        json={"title": "Missing"},
+    )
+    missing_album = api_client.patch(
+        "/v2/albums/album_00000000-0000-4000-8000-000000000000/sequences/sequence_00000000-0000-4000-8000-000000000000",
+        json={"title": "Missing"},
+    )
+
+    assert blank.status_code == 400
+    assert "Title cannot be empty" in blank.json()["detail"]
+    assert missing_sequence.status_code == 404
+    assert "Sequence" in missing_sequence.json()["detail"]
+    assert missing_album.status_code == 404
+    assert "Album not found" in missing_album.json()["detail"]
+
+
+def test_v2_delete_album_sequence_removes_secondary_and_persists(
+    api_client: TestClient,
+    music_root: Path,
+) -> None:
+    album = api_client.post(
+        "/v2/albums",
+        json={"title": "Delete B-Sides", "song_ids": []},
+    ).json()
+    created = api_client.post(
+        f"/v2/albums/{album['id']}/sequences",
+        json={"title": "B-Sides"},
+    ).json()
+    secondary_id = created["sequences"][1]["id"]
+
+    response = api_client.delete(
+        f"/v2/albums/{album['id']}/sequences/{secondary_id}"
+    )
+
+    assert response.status_code == 200
+    updated = AlbumManifest.model_validate(response.json())
+    assert [sequence.id for sequence in updated.sequences] == [
+        album["primary_sequence_id"]
+    ]
+    album_root = next((music_root / "albums").iterdir())
+    assert load_album_manifest(album_root) == updated
+
+
+def test_v2_delete_album_sequence_returns_expected_errors(
+    api_client: TestClient,
+) -> None:
+    album = api_client.post(
+        "/v2/albums",
+        json={"title": "Protected Sequence", "song_ids": []},
+    ).json()
+
+    primary = api_client.delete(
+        f"/v2/albums/{album['id']}/sequences/{album['primary_sequence_id']}"
+    )
+    missing_sequence = api_client.delete(
+        f"/v2/albums/{album['id']}/sequences/sequence_00000000-0000-4000-8000-000000000000"
+    )
+    missing_album = api_client.delete(
+        "/v2/albums/album_00000000-0000-4000-8000-000000000000/sequences/sequence_00000000-0000-4000-8000-000000000000"
+    )
+
+    assert primary.status_code == 400
+    assert "Cannot delete the primary sequence" in primary.json()["detail"]
+    assert missing_sequence.status_code == 404
+    assert "Sequence" in missing_sequence.json()["detail"]
+    assert missing_album.status_code == 404
+    assert "Album not found" in missing_album.json()["detail"]
