@@ -9,6 +9,8 @@ reordering and removal through HTTP without losing persistence. Song-project
 tests cover registration, default selection, persistence, and HTTP errors.
 Song retrieval tests cover successful lookup, unknown IDs, and persisted
 project information returned by a later request.
+Album-project tests cover template creation, nested template layouts, session
+registration, entry assignment, persistence, and HTTP errors.
 Metadata PATCH tests cover partial edits, explicit null clearing, persistence,
 invalid project references, and unknown entity IDs.
 
@@ -1212,6 +1214,95 @@ def test_v2_create_song_project_from_template_rejects_unusable_title(
     assert response.status_code == 400
     assert "usable filename characters" in response.json()["detail"]
     assert list((song_root / "projects").iterdir()) == []
+
+
+def test_v2_create_album_project_from_file_template_registers_session(
+    api_client: TestClient,
+    music_root: Path,
+) -> None:
+    song = api_client.post("/v2/songs", json={"title": "Connected Song"}).json()
+    album = api_client.post(
+        "/v2/albums",
+        json={"title": "Connected Album", "song_ids": [song["id"]]},
+    ).json()
+    album_root = next((music_root / "albums").iterdir())
+
+    response = api_client.post(
+        f"/v2/albums/{album['id']}/projects/from-template",
+        json={"template_name": "Reaper"},
+    )
+
+    assert response.status_code == 201
+    updated = AlbumManifest.model_validate(response.json())
+    project_root = next((album_root / "projects").iterdir())
+    project_file = project_root / "Connected Album.RPP"
+    assert project_file.read_text(encoding="utf-8") == "dummy reaper template"
+    assert len(updated.assets) == 1
+    assert updated.assets[0].title == "Connected Album"
+    assert updated.sequences[0].entries[0].album_asset_id == updated.assets[0].id
+    assert load_album_manifest(album_root) == updated
+
+
+def test_v2_create_album_project_from_nested_template_can_remain_unassigned(
+    api_client: TestClient,
+    music_root: Path,
+) -> None:
+    album = api_client.post(
+        "/v2/albums",
+        json={"title": "Nested Album", "song_ids": []},
+    ).json()
+    album_root = next((music_root / "albums").iterdir())
+
+    response = api_client.post(
+        f"/v2/albums/{album['id']}/projects/from-template",
+        json={
+            "template_name": "Ableton",
+            "title": "Full Album Set",
+            "entry_ids": [],
+        },
+    )
+
+    assert response.status_code == 201
+    updated = AlbumManifest.model_validate(response.json())
+    project_root = next((album_root / "projects").iterdir())
+    nested_root = project_root / "Full Album Set"
+    assert (nested_root / "Full Album Set.als").read_text(
+        encoding="utf-8"
+    ) == "dummy ableton template"
+    assert (nested_root / "Samples").is_dir()
+    assert (nested_root / "Ableton Project Info").is_dir()
+    assert updated.assets[0].title == "Full Album Set"
+
+
+def test_v2_create_album_project_from_template_returns_404_for_unknown_template(
+    api_client: TestClient,
+) -> None:
+    album = api_client.post(
+        "/v2/albums",
+        json={"title": "Unknown Template Album", "song_ids": []},
+    ).json()
+
+    response = api_client.post(
+        f"/v2/albums/{album['id']}/projects/from-template",
+        json={"template_name": "Unknown"},
+    )
+
+    assert response.status_code == 404
+    assert "not found" in response.json()["detail"]
+
+
+def test_v2_create_album_project_from_template_returns_404_for_unknown_album(
+    api_client: TestClient,
+    music_root: Path,
+) -> None:
+    response = api_client.post(
+        "/v2/albums/album_00000000-0000-4000-8000-000000000000/projects/from-template",
+        json={"template_name": "Reaper"},
+    )
+
+    assert response.status_code == 404
+    assert "Album not found" in response.json()["detail"]
+    assert list((music_root / "albums").iterdir()) == []
 
 
 def test_v2_create_album_sequence_persists_secondary_tracklist(

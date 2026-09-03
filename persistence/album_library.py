@@ -503,3 +503,74 @@ def delete_album_sequence(
     manifest.sequences.remove(sequence)
 
     return _validate_return_manifest(manifest, album_path)
+
+def _next_project_root(projects_root: Path, base_name: str) -> Path:
+    """Helper function to find next available project rooot"""
+    candidate = projects_root / base_name
+    counter = 1
+
+    while candidate.exists():
+        candidate = projects_root / f"{base_name}_{counter}"
+        counter += 1
+
+    return candidate
+
+def create_album_project_from_template(
+    root: Path,
+    album_id: str,
+    template_path: Path,
+    nested_folder: bool,
+    title: str | None = None,  # if None then use album name
+    entry_ids: list[str] | None = None
+) -> AlbumManifest:
+
+    manifest, album_path = _find_album(root, album_id)
+
+    if not template_path.is_file():
+        raise FileNotFoundError(f"Template not found: {template_path}")
+
+    projects_root = album_path / "projects"
+
+    if not projects_root.is_dir():
+        raise FileNotFoundError(f"Projects directory not found: {projects_root}")
+
+    project_title = manifest.title if title is None else title
+    safe_title = safe_directory_component(project_title)
+    date = datetime.now().astimezone().strftime("%Y%m%d")
+
+    project_root = _next_project_root(projects_root, f"{date}_{safe_title}")
+
+    created = False
+    try:
+        project_root.mkdir()
+        created = True
+
+        if nested_folder:
+            nested_root = project_root / safe_title
+            _ = shutil.copytree(template_path.parent, nested_root)
+
+            copied_template = nested_root / template_path.name
+            project_file = nested_root / f"{safe_title}{template_path.suffix}"
+
+            if copied_template != project_file:
+                _ = copied_template.rename(project_file)
+
+        else:
+            project_file = project_root / f"{safe_title}{template_path.suffix}"
+            _ = shutil.copy2(template_path, project_file)
+
+        relative_path = project_file.relative_to(album_path).as_posix()
+
+        return register_album_session(
+            root=root,
+            album_id=album_id,
+            title=project_title,
+            relative_path=relative_path,
+            entry_ids=entry_ids,
+        )
+
+    except Exception:
+        if created:
+            shutil.rmtree(project_root)
+        raise
+

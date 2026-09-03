@@ -13,6 +13,7 @@ from persistence.album_library import (
     AlbumMetadataChanges,
     add_album_entry,
     create_album,
+    create_album_project_from_template,
     create_album_sequence,
     delete_album_sequence,
     list_albums,
@@ -63,6 +64,10 @@ class ProjectFromTemplateCreateV2(BaseModel):
     title: str | None = None
     make_default: bool = True
 
+class AlbumProjectFromTemplateCreateV2(BaseModel):
+    template_name: str
+    title: str | None = None
+    entry_ids: list[str] | None = None
 
 class AlbumSessionAssignmentV2(BaseModel):
     asset_id: str
@@ -518,3 +523,45 @@ def delete_album_sequence_route(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=str(error),
         ) from error
+
+@router.post(
+    "/albums/{album_id}/projects/from-template",
+    response_model=AlbumManifest,
+    status_code=status.HTTP_201_CREATED,
+)
+def post_album_project_from_template(
+    album_id: str,
+    payload: AlbumProjectFromTemplateCreateV2
+) -> AlbumManifest:
+    config = get_config()
+    template = config.templates.get(payload.template_name)
+    if not template:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Template '{payload.template_name}' not found",
+        )
+
+    try:
+        return create_album_project_from_template(
+            root=config.root,
+            album_id=album_id,
+            template_path=template.root,
+            nested_folder=template.folder,
+            title=payload.title,
+            entry_ids=payload.entry_ids
+        )
+    except FileNotFoundError as e:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=str(e),
+        ) from e
+    except FileExistsError as e:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=str(e),
+        ) from e
+    except ValueError as e:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(e),
+        ) from e
